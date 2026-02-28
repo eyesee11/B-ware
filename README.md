@@ -200,6 +200,9 @@ User claim → Regex (fast, cheap) → Cache hit?
 ```
 
 ML model becomes primary extractor
+
 Regex becomes the fast cache (your original idea)
+
 If regex confidence ≥ 0.9 → skip ML, return immediately
+
 If regex confidence < 0.9 → call ML model for better extraction

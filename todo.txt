@@ -1,0 +1,194 @@
+================================================================================
+FACTZCHECK — NLP SERVICE COMPLETE GUIDE
+================================================================================
+
+FILES IMPLEMENTED:
+  - nlp-service/main.py      — Full FastAPI app with 3 endpoints (/health, /extract, /metrics)
+  - nlp-service/tests/test_extractor.py — 22 test cases covering year, value, metric, and full pipeline extraction
+
+TO RUN THE NLP SERVICE:
+  cd nlp-service
+  pip install fastapi uvicorn pytest
+  python main.py
+  Then open http://localhost:5001/docs for interactive Swagger UI.
+
+TO RUN TESTS:
+  cd nlp-service
+  python -m pytest tests/ -v
+
+================================================================================
+PART 1: APIs & DATASETS FOR VERIFYING CLAIMS WITH REAL DATA
+================================================================================
+
+Your official_data_cache table needs real official numbers. Here's where to get them:
+
+FREE GOVERNMENT & INSTITUTIONAL APIs:
+
+  1. World Bank Open Data
+     - Data: GDP, inflation, unemployment, poverty, literacy — ALL countries
+     - URL: https://api.worldbank.org/v2/country/IND/indicator/NY.GDP.MKTP.KD.ZG?format=json&date=2020:2025
+     - Format: REST JSON
+     - NO API KEY NEEDED
+
+  2. RBI (Reserve Bank of India)
+     - Data: Forex reserves, CPI inflation, monetary data
+     - URL: https://data.rbi.org.in/ (DBIE portal)
+     - Format: CSV/Excel download
+
+  3. data.gov.in
+     - Data: India-specific: literacy, population, fiscal data
+     - URL: https://data.gov.in/search (API key required — free)
+     - Format: REST JSON
+
+  4. IMF Data API
+     - Data: GDP, fiscal deficit, trade deficit, current account
+     - URL: https://www.imf.org/external/datamapper/api/v1/
+     - Format: REST JSON
+
+  5. FRED (Federal Reserve)
+     - Data: Global economic indicators (backup source)
+     - URL: https://api.stlouisfed.org/fred/series/observations?series_id=...&api_key=YOUR_KEY
+     - Format: REST JSON
+
+WORLD BANK INDICATOR CODES FOR YOUR 10 METRICS:
+
+  GDP growth rate           → NY.GDP.MKTP.KD.ZG
+  Inflation rate            → FP.CPI.TOTL.ZG
+  Unemployment rate         → SL.UEM.TOTL.ZS
+  Fiscal deficit            → GC.BAL.CASH.GD.ZS
+  Literacy rate             → SE.ADT.LITR.ZS
+  Population                → SP.POP.TOTL
+  Per capita income         → NY.GDP.PCAP.CD
+  Poverty rate              → SI.POV.NAHC
+  Foreign exchange reserves → FI.RES.TOTL.CD
+  Current account deficit   → BN.CAB.XOKA.GD.ZS
+
+Example API call:
+  GET https://api.worldbank.org/v2/country/IND/indicator/NY.GDP.MKTP.KD.ZG?format=json&date=2020:2025
+
+DATA FLOW:
+  On Startup / Scheduled Job → Fetch from World Bank/RBI/IMF APIs
+                             → INSERT/UPDATE into official_data_cache
+                             → Used for comparison when user submits a claim
+
+================================================================================
+PART 2: FULL INTEGRATION ARCHITECTURE
+================================================================================
+
+  User Browser (Frontend React :3000)
+       │ HTTP POST /api/claims
+       ▼
+  Backend (Node.js/Express :5000)
+       │ 1. Auth middleware: verify JWT
+       │ 2. Save claim to DB (status: 'pending')
+       │ 3. POST http://localhost:5001/extract → NLP Service
+       │ 4. Receive {metric, value, year}
+       │ 5. Query official_data_cache for (metric, year)
+       │ 6. Calculate difference, percentage_error, verdict
+       │ 7. INSERT into verification_log
+       │ 8. UPDATE claims SET credibility_score, status='verified'
+       │ 9. Return result to frontend
+       │
+  ┌────┴────────────────┐
+  │                     │
+  ▼                     ▼
+  NLP Service       MySQL Database
+  (Python :5001)    (localhost:3306)
+  POST /extract     users, claims,
+                    official_data_cache,
+                    verification_log
+
+INTEGRATION STEPS (CHECKLIST):
+
+  [ ] I-1  Set up MySQL DB, run schema.sql
+  [ ] I-2  Build config/db.js — MySQL connection pool
+  [ ] I-3  Build server.js — Express app setup
+  [ ] I-4  Build middleware/auth.js — JWT verification
+  [ ] I-5  Build controllers/authController.js — register/login
+  [ ] I-6  Build routes/authRoutes.js
+  [ ] I-7  Build controllers/claimController.js — calls NLP service
+  [ ] I-8  Build routes/claimRoutes.js
+  [ ] I-9  Build data seeder — fetch World Bank data → official_data_cache
+  [ ] I-10 Build frontend (React) — login, submit claim, view results
+  [ ] I-11 End-to-end testing
+
+KEY INTEGRATION CODE (claimController.js):
+
+  // Backend calls Python NLP service
+  const nlpResponse = await fetch('http://localhost:5001/extract', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: req.body.claim_text })
+  });
+  const { metric, value, year, confidence } = await nlpResponse.json();
+
+  // Look up official data
+  const [rows] = await db.query(
+      'SELECT value FROM official_data_cache WHERE metric_name = ? AND year = ?',
+      [metric, year]
+  );
+  const officialValue = rows[0].value;
+  const difference = Math.abs(value - officialValue);
+  const percentageError = (difference / officialValue) * 100;
+  const verdict = percentageError < 5 ? 'accurate'
+                : percentageError < 20 ? 'misleading'
+                : 'false';
+
+================================================================================
+PART 3: REGEX-CACHE vs SELF-TRAINED MODEL — TRADEOFFS
+================================================================================
+
+COMPARISON TABLE:
+
+  Dimension       | Regex (Cache)         | ML Model              | Hybrid
+  ----------------+-----------------------+-----------------------+------------------
+  Speed           | ~1ms                  | ~50-500ms             | Fast for known
+  Accuracy        | 70-80%                | 90-95%                | 85-95%
+  Flexibility     | Only written patterns | Handles novel phrases | Best of both
+  Data needed     | None                  | 5,000-50,000 labeled  | Some for ML part
+  Cost            | Free (CPU)            | GPU for training      | Mixed
+  Maintenance     | Manual pattern adds   | Retrain periodically  | Both
+  Transparency    | 100% explainable      | Black box             | Mixed
+  Cold start      | Works immediately     | Needs weeks of prep   | Regex works day 1
+
+RECOMMENDED APPROACH: HYBRID, PHASED
+
+  Phase 1 (NOW — MVP):
+    ✅ Regex extraction (what we just built)
+    ✅ Direct comparison against official_data_cache
+    ✅ Ship it, get users, collect real claims
+
+  Phase 2 (After ~1000 real claims collected):
+    📊 Use collected claims as training data
+    📊 Label them: "did regex get the right metric/value/year?"
+    📊 Fine-tune a small model (DistilBERT or SpaCy NER)
+    📊 Deploy as fallback when regex confidence < 0.6
+
+  Phase 3 (Scale):
+    🚀 ML model becomes primary extractor
+    🚀 Regex becomes the fast cache
+    🚀 If regex confidence >= 0.9 → skip ML, return immediately
+    🚀 If regex confidence < 0.9 → call ML model
+
+DATASETS FOR FUTURE ML TRAINING:
+
+  LIAR dataset     — 12,800 labeled political claims (true/false)
+                     GitHub: github.com/talhbutt/LIAR-PLUS
+  FEVER            — 185,000 claims against Wikipedia evidence
+                     URL: fever.ai
+  ClaimBuster      — Claims from US presidential debates
+                     URL: idir.uta.edu/claimbuster/
+  MultiFC          — 34,000 claims from 26 fact-checking sites
+  Your own data    — Real claims from FACTZcheck users (BEST source)
+
+MODEL RECOMMENDATIONS FOR PHASE 2:
+
+  SpaCy custom NER    — Python-native, fast, lightweight (RECOMMENDED)
+                        Label ~500-1000 examples, train in <1 hour on CPU
+  DistilBERT fine-tune — Very good accuracy, needs GPU, medium complexity
+  BERT + CRF layer    — Best for extraction, high complexity
+  GPT/Gemini API      — No training needed, but costs $$$ per request
+
+================================================================================
+NEXT STEP: Build the backend (I-1 through I-9)
+================================================================================
