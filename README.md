@@ -49,12 +49,13 @@ year	2024	            claims.extracted_year
 ```
 2> The NLP layer handles the text analysis. The nodejs backed will send a HTTP POST request to the NLP service though an API we will build.
 
-3> ```
+3> 
+```
 User → Frontend → Backend (Node.js :5000) → NLP Service (Python :5001) → Response flows back
 ```
 
 4> Service Structure:
-```
+
 nlp-service/
 ├── requirements.txt        ← Python dependencies
 ├── main.py                 ← FastAPI app + endpoint
