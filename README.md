@@ -1,4 +1,4 @@
-# FACTZcheck : No Lies Told
+# B-ware : No Lies Told
 
 ## An AI-Powered Facts and Claims checker ML model which verifies the possibility and error percentage of the claim being made by the user.
 
