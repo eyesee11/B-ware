@@ -1,0 +1,285 @@
+================================================================================
+B-ware — ADVANCED VERIFICATION ENGINE (RAV ARCHITECTURE)
+Last updated: March 2, 2026
+Continue from here next session.
+================================================================================
+
+================================================================================
+BACKGROUND: THE THREE LAYERS OF CLAIM VERIFICATION
+================================================================================
+
+Layer 1 — EXTRACTION     → "What is being claimed?"
+          (BUILT ✅)        regex → metric + value + year
+
+Layer 2 — EVIDENCE        → "What does the real world say about this?"
+          (NOT BUILT)       data APIs + news sources
+
+Layer 3 — VERDICT         → "Does the evidence support or contradict the claim?"
+          (NOT BUILT)       comparison logic + AI reasoning
+
+The regex system handles Layer 1 completely.
+The sophisticated model (RAV) is for Layers 2 and 3.
+
+RAV = Retrieval-Augmented Verification
+  → Don't train a model to memorize facts.
+  → Instead, RETRIEVE evidence at query time and use a pre-trained
+    reasoning model to compare the claim against that evidence.
+
+================================================================================
+THE THREE-TIER ENGINE
+================================================================================
+
+TIER 1 — Regex + Data API  (fast: <50ms, free)
+  When: Claim has a clear numeric metric + year matching one of the 10 metrics
+  What: Compare extracted value against official_data_cache
+  Verdict quality: High for well-formed numeric claims
+  Cost: Free (World Bank, IMF APIs are free)
+
+TIER 2 — Pre-trained NLI Model  (medium: 100-500ms, free, no training needed)
+  When: Tier 1 gave low confidence OR claim is non-numeric
+        e.g., "India's economy is booming"
+  What: Retrieve 3-5 news snippets → run NLI model (entail/contradict/neutral)
+  Model to use:
+    - cross-encoder/nli-deberta-v3-large  (best quality, runs on CPU)
+    - facebook/bart-large-mnli            (lighter alternative)
+    Both are free, open-source, on HuggingFace. NO training needed.
+    Load once, call at inference time.
+  Verdict quality: Good for contextual/opinion claims
+  Cost: Free (self-hosted, runs on CPU)
+
+TIER 3 — LLM API  (slow: 1-3 seconds, best quality)
+  When: Tier 2 confidence < 0.6 OR user requests deep analysis
+  What: Send claim + evidence to Gemini/Grok with a structured prompt
+  APIs to use:
+    - Gemini 1.5 Flash (FREE: 15 req/min) — get key at aistudio.google.com
+    - Grok API (xAI, paid but cheap, has real-time web search built in)
+    - GPT-4o-mini (paid, ~$0.0001/claim — very cheap)
+  Verdict quality: Highest — handles nuance, context, multi-source reasoning
+  Cost: Free (Gemini) to very cheap ($0.001/claim GPT-4o-mini)
+
+================================================================================
+VERDICT ROUTER LOGIC
+================================================================================
+
+  if tier1_confidence > 0.8:
+      return tier1 result immediately  ← regex + data API, fastest path
+
+  elif tier1_confidence > 0.4:
+      run tier2
+      combine tier1 numeric check + tier2 NLI verdict
+      return merged result
+
+  else:
+      run tier2
+      if tier2_confidence < 0.6:
+          escalate to tier3 (LLM API)
+      return best available result
+
+================================================================================
+DATA SOURCES — WHAT EACH ONE GIVES YOU AND WHICH TIER IT FEEDS
+================================================================================
+
+  SOURCE                      | WHAT IT GIVES                        | TIER | COST
+  ----------------------------+--------------------------------------+------+------
+  World Bank API              | Historic data, all 10 metrics, 196   | T1   | Free
+                              | countries, 1960–2024                 |      |
+  IMF DataMapper API          | GDP, fiscal deficit, current account  | T1   | Free
+                              | Often more recent than World Bank    |      |
+  RBI DBIE portal             | India-specific: forex, CPI, rates    | T1   | Free
+  data.gov.in                 | India: literacy, population, census  | T1   | Free
+  Trading Economics API       | Real-time indicators, 196 countries  | T1   | Free tier
+                              |                                      |      | (limited)
+  Google Fact Check Tools API | Existing fact-checks from Snopes,    | T2   | Free
+                              | AFP, AltNews, FactChecker.in etc.   |      |
+  NewsAPI / GNews API         | Article snippets from 80k+ sources  | T2   | Free tier
+                              |                                      |      | (100/day)
+  HuggingFace NLI models      | Pre-trained reasoning models         | T2   | Free
+                              | DeBERTa-NLI, BART-MNLI              |      | (self-host)
+  Gemini 1.5 Flash API        | LLM reasoning over claim + evidence  | T3   | Free
+                              |                                      |      | (15/min)
+  Grok API (xAI)              | LLM + real-time web search built in | T3   | Paid/cheap
+
+ABOUT THE TRAINING DATASETS (LIAR, FEVER, ClaimBuster etc.):
+  These are NOT for calling at runtime.
+  They are for fine-tuning in Phase 2 (after ~1000 real user claims collected).
+  Use pre-trained NLI models for MVP — fine-tune later with real data.
+
+================================================================================
+NEW FILE STRUCTURE TO BUILD
+================================================================================
+
+  nlp-service/
+    main.py              ← add new endpoints: POST /verify, POST /verify/deep
+    extractor.py         ← BUILT ✅
+    metrics.py           ← BUILT ✅
+    claim_detector.py    ← BUILT ✅
+
+    verifier/            ← NEW FOLDER (build all of this)
+      __init__.py
+      tier1_numeric.py   ← compare extracted value vs World Bank/IMF/RBI data
+      tier2_nli.py       ← fetch news snippets → run NLI model → verdict
+      tier3_llm.py       ← call Gemini/Grok API with claim + evidence context
+      evidence_fetcher.py ← Google Fact Check API + NewsAPI calls
+      verdict_router.py  ← decides which tier to use based on confidence
+
+================================================================================
+BUILD ORDER
+================================================================================
+
+  [ ] V-1  tier1_numeric.py
+           - Call World Bank API for all 10 metrics × last 10 years
+           - Store in official_data_cache (table already in schema.sql)
+           - Compare claimed value vs official value
+           - Return: official_value, percentage_error, source name + URL
+           - This is essentially the worldBankSeeder (I-9) extended with
+             live lookup at verification time, not just a one-time seed
+
+  [ ] V-2  evidence_fetcher.py
+           APIs to register for (both free):
+             - Google Fact Check Tools API
+               https://developers.google.com/fact-check/tools/api
+               Searches AFP, Snopes, Boom, AltNews, FactChecker.in
+             - NewsAPI.org (free: 100 req/day)
+               https://newsapi.org
+           Function: fetch_evidence(metric, year, claimed_value) → list of snippets
+           Each snippet: { source, title, url, snippet_text, published_date }
+
+  [ ] V-3  tier2_nli.py
+           Install: pip install transformers torch sentence-transformers
+           Model: cross-encoder/nli-deberta-v3-large (download once, ~900MB)
+           Function: run_nli(claim_text, evidence_snippet) → { label, score }
+             label = "entailment" | "contradiction" | "neutral"
+           Aggregate across all snippets → majority verdict + avg confidence
+
+  [ ] V-4  tier3_llm.py
+           Get Gemini API key: https://aistudio.google.com (free, instant)
+           Install: pip install google-generativeai
+           Prompt structure:
+             "You are a fact-checking assistant. Given the claim and evidence
+              below, determine if the claim is ACCURATE, MISLEADING, or FALSE.
+              Return JSON: { verdict, confidence, explanation, sources_used }"
+           Feed: claim + tier1 numeric result + top 3 news snippets
+
+  [ ] V-5  verdict_router.py
+           Orchestrates all tiers.
+           Implements the routing logic described above.
+           Single entry point: verify(claim_text) → VerificationResult
+
+  [ ] V-6  New endpoints in main.py
+           POST /verify       — full pipeline (all 3 tiers as needed)
+           POST /verify/quick — Tier 1 only, fastest, numeric claims only
+           POST /verify/deep  — forces Tier 3 (LLM), slowest, best quality
+
+================================================================================
+TARGET RESPONSE SHAPE FROM POST /verify
+================================================================================
+
+  Request:
+    { "text": "India's GDP grew at 8.2% in 2024, the fastest in a decade" }
+
+  Response:
+    {
+      "claim": "India's GDP grew at 8.2% in 2024",
+      "tier_used": "tier2",
+      "verdict": "misleading",
+      "confidence": 0.76,
+
+      "numeric_check": {
+        "official_value": 7.8,
+        "claimed_value": 8.2,
+        "percentage_error": 5.1,
+        "source": "World Bank",
+        "indicator_code": "NY.GDP.MKTP.KD.ZG",
+        "source_url": "https://data.worldbank.org/indicator/NY.GDP.MKTP.KD.ZG"
+      },
+
+      "evidence": [
+        {
+          "source": "Reuters",
+          "snippet": "India's GDP grew 7.8% in fiscal 2024, govt data shows...",
+          "url": "https://reuters.com/...",
+          "nli_verdict": "contradicts",
+          "nli_score": 0.84
+        }
+      ],
+
+      "explanation": "The claimed value of 8.2% exceeds the official World Bank
+                      figure of 7.8% by 5.1%, which classifies as misleading.
+                      News sources confirm the lower figure."
+    }
+
+================================================================================
+NEW PYDANTIC MODELS NEEDED IN main.py
+================================================================================
+
+  NumericCheckResult:
+    official_value: float | None
+    claimed_value: float | None
+    percentage_error: float | None
+    source: str | None
+    indicator_code: str | None
+    source_url: str | None
+
+  EvidenceSnippet:
+    source: str
+    snippet: str
+    url: str
+    nli_verdict: str    ("entailment" | "contradiction" | "neutral")
+    nli_score: float
+
+  VerificationResult:
+    claim: str
+    tier_used: str      ("tier1" | "tier2" | "tier3")
+    verdict: str        ("accurate" | "misleading" | "false" | "unverifiable")
+    confidence: float
+    numeric_check: NumericCheckResult | None
+    evidence: list[EvidenceSnippet]
+    explanation: str | None
+
+================================================================================
+PHASE 2 — FINE-TUNING (AFTER MVP, AFTER 1000+ REAL CLAIMS)
+================================================================================
+
+  Once you have real user claims with human-reviewed verdicts:
+
+  1. Export from DB:
+       SELECT claim_text, verdict FROM claims WHERE human_reviewed = TRUE
+
+  2. Combine with existing datasets:
+       LIAR dataset  — 12,800 labeled political claims
+                        github.com/talhbutt/LIAR-PLUS
+       FEVER         — 185,000 claims vs Wikipedia    fever.ai
+       ClaimBuster   — US presidential debate claims  idir.uta.edu/claimbuster/
+
+  3. Fine-tune DeBERTa or RoBERTa on your combined dataset:
+       Model: microsoft/deberta-v3-base (good balance of size vs accuracy)
+       Framework: HuggingFace Trainer API
+       Hardware: Google Colab free GPU (T4) is sufficient for fine-tuning
+
+  4. Deploy fine-tuned model as Tier 2 replacement:
+       Old Tier 2: generic NLI model
+       New Tier 2: your domain-specific model trained on Indian economic claims
+
+================================================================================
+PACKAGES TO INSTALL WHEN STARTING THIS WORK
+================================================================================
+
+  pip install transformers torch sentence-transformers
+  pip install google-generativeai
+  pip install httpx aiohttp          (async HTTP for calling external APIs)
+  pip install tenacity               (retry logic for flaky external API calls)
+
+  Add all of these to requirements.txt with pinned versions when done.
+
+================================================================================
+START HERE NEXT SESSION
+================================================================================
+
+  1. Create nlp-service/verifier/ folder
+  2. Build V-1 (tier1_numeric.py) first — it uses your existing API list
+     and connects to official_data_cache which is already in schema.sql
+  3. Register for Google Fact Check Tools API and NewsAPI (both free, 5 min)
+  4. Build V-2 (evidence_fetcher.py)
+  5. Then V-3, V-4, V-5, V-6 in order
+
+================================================================================
