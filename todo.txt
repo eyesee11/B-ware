@@ -1,5 +1,5 @@
 ================================================================================
-FACTZCHECK — NLP SERVICE COMPLETE GUIDE
+B-ware — NLP SERVICE COMPLETE GUIDE
 ================================================================================
 
 FILES IMPLEMENTED:
@@ -179,7 +179,7 @@ DATASETS FOR FUTURE ML TRAINING:
   ClaimBuster      — Claims from US presidential debates
                      URL: idir.uta.edu/claimbuster/
   MultiFC          — 34,000 claims from 26 fact-checking sites
-  Your own data    — Real claims from FACTZcheck users (BEST source)
+  Your own data    — Real claims from B-ware users (BEST source)
 
 MODEL RECOMMENDATIONS FOR PHASE 2:
 

@@ -20,7 +20,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from extractor import extract_all
 from metrics import get_all_metric_names
-
+from claim_detector import split_into_sentences, score_claim_probability
 # Pydantic Models — Request/Response contracts
 
 class ClaimRequest(BaseModel):
@@ -54,26 +54,40 @@ class MetricsListResponse(BaseModel):
     supported_metrics: list[str]
     count: int
 
+# new batch end point to handle multiple claims at once
+class BatchRequest(BaseModel):
+    """What the client sends for a batch extraction."""
+    claims: list[str] = Field(
+        ...,
+        min_length=1,       # at least 1 claim in the list
+        max_length=50,      # no more than 50 claims at once
+        description="List of claim texts to analyze"
+    )
+
+
+class BatchResponse(BaseModel):
+    """What we send back for a batch extraction."""
+    results: list[ExtractionResponse]  # recalling the extraction response for each claim
+    total: int
 
 # Create the FastAPI app
 
 app = FastAPI(
-    title="FACTZcheck NLP Service",
+    title="B-ware NLP Service",
     description="Extracts economic metrics, values, and years from claim text",
     version="1.0.0"
 )
 
 
-# =============================================================================
+
 # ENDPOINTS
-# =============================================================================
 
 @app.get("/health", response_model=HealthResponse)
 def health_check():
     """Check if the NLP service is running."""
     return {
         "status": "healthy",
-        "service": "FACTZcheck NLP Service",
+        "service": "B-ware NLP Service",
         "version": "1.0.0"
     }
 
@@ -92,6 +106,59 @@ def extract_claim(request: ClaimRequest):
     result = extract_all(request.text)
     return result
 
+@app.post("/batch", response_model=BatchResponse)
+def batch_extract(request: BatchRequest):
+    """
+    Extract metric, value, and year from multiple claims at once.
+
+    Example request body:
+        {
+            "claims": [
+                "India's GDP growth rate was 7.5% in 2024",
+                "Retail CPI inflation fell to 4.8% in January 2024"
+            ]
+        }
+    """
+    results = []
+
+    for claim_text in request.claims:        # loop over the list
+        try:
+            result = extract_all(claim_text)     # same function /extract uses
+            results.append(result)
+        except Exception as e:
+            # If one claim fails, don't crash the whole batch.
+            # Return a zeroed-out result for that claim instead.
+            results.append({
+                "original_text": claim_text,
+                "metric": None,
+                "value": None,
+                "year": None,
+                "confidence": 0.0
+            })
+
+    return {
+        "results": results,
+        "total": len(results)
+    }
+
+@app.post("/analyze", response_model=list[ExtractionResponse])
+def analyze_text(request: ClaimRequest):
+    """
+    Analyze a block of text that may contain multiple sentences/claims.
+    For each sentence, we split it and score how likely it is to be a claim.
+    We return the extraction results for all sentences that have a claim probability > 0.5.
+    """
+    sentences = split_into_sentences(request.text)
+    results = []
+
+    for sentence in sentences:
+        prob = score_claim_probability(sentence)
+        if prob > 0.5:
+            result = extract_all(sentence)
+            results.append(result)
+
+    return results
+
 
 @app.get("/metrics", response_model=MetricsListResponse)
 def list_metrics():
@@ -102,14 +169,10 @@ def list_metrics():
         "count": len(names)
     }
 
-
-# =============================================================================
 # Run the server directly: python main.py
-# =============================================================================
-
 if __name__ == "__main__":
     import uvicorn
-    print("Starting FACTZcheck NLP Service...")
+    print("Starting B-ware NLP Service...")
     print("API docs available at: http://localhost:5001/docs")
     uvicorn.run(
         "main:app",

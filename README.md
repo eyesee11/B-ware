@@ -206,3 +206,37 @@ Regex becomes the fast cache (your original idea)
 If regex confidence ≥ 0.9 → skip ML, return immediately
 
 If regex confidence < 0.9 → call ML model for better extraction
+
+14> New /analyze end point to analyze a whole paragraph provided by the user, and send it to the batch end point for the verification of the probable claims hidden inside the input.
+```
+User sends a paragraph
+        ↓
+[NEW] claim_detector.py splits into sentences
+        ↓
+[NEW] Each sentence gets a claim_probability score (0.0 → 1.0)
+        ↓
+Sentences above threshold → passed to extract_all()
+Sentences below threshold → returned as-is with no extraction
+        ↓
+Full structured response with every sentence, its score, 
+and extraction result (if it was verified)
+```
+
+15> New /batch end point to handle multiple claims at once.
+```
+POST /batch
+  │
+  ├─ FastAPI reads JSON body → validates against BatchRequest
+  │    └─ checks: is "claims" present? is it a list? 1–50 items?
+  │    └─ if invalid → auto 422 response, your code never runs
+  │
+  ├─ batch_extract(request) is called
+  │    └─ request.claims = ["claim1", "claim2", ...]
+  │
+  ├─ loops over each claim → calls extract_all()
+  │    └─ each result is a dict matching ExtractionResponse shape
+  │
+  └─ returns {"results": [...], "total": 4}
+       └─ FastAPI validates this against BatchResponse
+       └─ serializes to JSON and sends back
+```

@@ -162,6 +162,56 @@ class TestFindMetric:
         assert "inflation rate" in names
 
 
+# Claim Detector tests will go here once we implement the claim_detector.py functions.
+
+class TestClaimDetector:
+    """Tests for claim_detector.py functions."""
+
+    def test_split_into_sentences(self):
+        """Test sentence splitting on various punctuation."""
+        text = "India's GDP growth was 7.5% in 2024! Inflation hit 6.2%? Unemployment rose to 8%."
+        sentences = split_into_sentences(text)
+        assert sentences == [
+            "India's GDP growth was 7.5% in 2024",
+            "Inflation hit 6.2%",
+            "Unemployment rose to 8%"
+        ]
+
+    def test_score_claim_probability(self):
+        """Test claim probability scoring on different sentences."""
+        assert score_claim_probability("India's GDP growth was 7.5% in 2024") > 0.8
+        assert score_claim_probability("The weather is nice today") < 0.2
+
+# Analyze endpoint tests will go here once we implement the /analyze endpoint in main.py.
+
+class TestAnalyzeEndpoint:
+    """Tests for the /analyze endpoint in main.py."""
+
+    def test_analyze_text(self):
+        """Test the analyze_text function with a sample input."""
+        from main import analyze_text, ClaimRequest
+
+        request = ClaimRequest(text="India's GDP growth was 7.5% in 2024! Inflation hit 6.2%? Unemployment rose to 8%.")
+        results = analyze_text(request)
+
+        assert len(results) == 3
+        assert results[0]["metric"] == "GDP growth rate"
+        assert results[0]["value"] == 7.5
+        assert results[0]["year"] == 2024
+        assert results[0]["confidence"] > 0.8
+
+        assert results[1]["metric"] == "inflation rate"
+        assert results[1]["value"] == 6.2
+        assert results[1]["year"] is None
+        assert results[1]["confidence"] > 0.8
+
+        assert results[2]["metric"] == "unemployment rate"
+        assert results[2]["value"] == 8.0
+        assert results[2]["year"] is None
+        assert results[2]["confidence"] > 0.8
+
+        
+
 # =============================================================================
 # FULL EXTRACTION PIPELINE TESTS (extract_all)
 # =============================================================================
@@ -212,3 +262,4 @@ class TestExtractAll:
         text = "Random text here"
         result = extract_all(text)
         assert result["original_text"] == text
+
