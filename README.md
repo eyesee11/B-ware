@@ -33,7 +33,6 @@ It doesn't just tell you **true or false**. It shows you:
 - A **danger score** for trending rumours in the news
 
 ![Hero Screenshot](docs/images/hero-screenshot.png)
-*Replace with actual screenshot of the Verify page showing a verdict card*
 
 ---
 
@@ -116,7 +115,6 @@ It doesn't just tell you **true or false**. It shows you:
 ```
 
 ![Architecture Diagram](docs/images/architecture-diagram.png)
-*Replace with actual architecture diagram*
 
 ---
 
@@ -159,7 +157,6 @@ Claim: "India's GDP growth rate was 7.5% in 2024"
 | No data | **Unverifiable** | ⚪ Gray |
 
 ![Verdict Card](docs/images/verdict-card.png)
-*Replace with screenshot of a verdict card showing claimed vs official values*
 
 ---
 
@@ -268,7 +265,6 @@ python main.py
 ```
 
 ![Swagger UI](docs/images/swagger-ui.png)
-*Replace with screenshot of the dark-themed Swagger UI showing all 11 endpoints*
 
 ### 4. Start the backend
 
@@ -372,7 +368,6 @@ curl -X POST http://localhost:5000/api/claims/verify \
 
 ## Screenshots
 
-> **Note:** Replace these placeholder images with actual screenshots of the running application.
 
 | Feature | Screenshot |
 |---------|-----------|
