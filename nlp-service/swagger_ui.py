@@ -30,6 +30,14 @@ tags_metadata = [
         "description": "**Health checks and metadata.** Use `/health` to verify the service is "
                        "running and `/metrics` to see the full list of supported economic indicators."
     },
+    {
+        "name": "Verification",
+        "description": "**RAV Engine — Retrieval-Augmented Verification.** "
+                       "Verify a claim against official data sources and news evidence. "
+                       "`/verify/quick` uses Tier 1 (World Bank numeric check only). "
+                       "`/verify` runs the full three-tier pipeline. "
+                       "`/verify/deep` forces Tier 3 LLM reasoning."
+    },
 ]
 
 

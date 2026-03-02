@@ -1,7 +1,8 @@
 ================================================================================
 B-ware — ADVANCED VERIFICATION ENGINE (RAV ARCHITECTURE)
-Last updated: March 2, 2026
-Continue from here next session.
+Last updated: March 3, 2026
+Status: RAV engine COMPLETE. All 3 tiers built and tested. /verify/quick, /verify, /verify/deep all live.
+         BONUS: facebook/bart-large-mnli already cached on this machine — Tier 2 runs live.
 ================================================================================
 
 ================================================================================
@@ -29,19 +30,19 @@ RAV = Retrieval-Augmented Verification
 THE THREE-TIER ENGINE
 ================================================================================
 
-TIER 1 — Regex + Data API  (fast: <50ms, free)
+TIER 1 — Regex + Official Data API  (fast when cached; no ML)
   When: Claim has a clear numeric metric + year matching one of the 10 metrics
-  What: Compare extracted value against official_data_cache
+  What: Retrieve official value (World Bank first) and compute % error
   Verdict quality: High for well-formed numeric claims
-  Cost: Free (World Bank, IMF APIs are free)
+  Cost: Free (World Bank API is free)
 
 TIER 2 — Pre-trained NLI Model  (medium: 100-500ms, free, no training needed)
   When: Tier 1 gave low confidence OR claim is non-numeric
         e.g., "India's economy is booming"
   What: Retrieve 3-5 news snippets → run NLI model (entail/contradict/neutral)
-  Model to use:
-    - cross-encoder/nli-deberta-v3-large  (best quality, runs on CPU)
-    - facebook/bart-large-mnli            (lighter alternative)
+  Model options (HuggingFace, no fine-tuning required for MVP):
+    - facebook/bart-large-mnli            (recommended to start: simpler + faster to iterate)
+    - cross-encoder/nli-deberta-v3-large  (upgrade later: higher quality, heavier download/CPU)
     Both are free, open-source, on HuggingFace. NO training needed.
     Load once, call at inference time.
   Verdict quality: Good for contextual/opinion claims
@@ -56,6 +57,10 @@ TIER 3 — LLM API  (slow: 1-3 seconds, best quality)
     - GPT-4o-mini (paid, ~$0.0001/claim — very cheap)
   Verdict quality: Highest — handles nuance, context, multi-source reasoning
   Cost: Free (Gemini) to very cheap ($0.001/claim GPT-4o-mini)
+
+SECURITY NOTE (important for web app):
+  Do NOT call Grok/Gemini from the browser (e.g., PuterJS in frontend) because API keys leak.
+  Tier 3 should be called server-side (inside this FastAPI service or later via Node backend).
 
 ================================================================================
 VERDICT ROUTER LOGIC
@@ -114,9 +119,9 @@ NEW FILE STRUCTURE TO BUILD
     metrics.py           ← BUILT ✅
     claim_detector.py    ← BUILT ✅
 
-    verifier/            ← NEW FOLDER (build all of this)
-      __init__.py
-      tier1_numeric.py   ← compare extracted value vs World Bank/IMF/RBI data
+    verifier/            ← RAV engine package
+      __init__.py        ← BUILT ✅
+      tier1_numeric.py   ← BUILT ✅ (World Bank fetch + % error + TTL cache)
       tier2_nli.py       ← fetch news snippets → run NLI model → verdict
       tier3_llm.py       ← call Gemini/Grok API with claim + evidence context
       evidence_fetcher.py ← Google Fact Check API + NewsAPI calls
@@ -126,13 +131,12 @@ NEW FILE STRUCTURE TO BUILD
 BUILD ORDER
 ================================================================================
 
-  [ ] V-1  tier1_numeric.py
-           - Call World Bank API for all 10 metrics × last 10 years
-           - Store in official_data_cache (table already in schema.sql)
+  [x] V-1  tier1_numeric.py (DONE)
+           - Live lookup at verification time via World Bank API
+           - In-memory TTL cache for repeated lookups
            - Compare claimed value vs official value
            - Return: official_value, percentage_error, source name + URL
-           - This is essentially the worldBankSeeder (I-9) extended with
-             live lookup at verification time, not just a one-time seed
+           - DB caching (official_data_cache) remains a later optimization (backend phase)
 
   [ ] V-2  evidence_fetcher.py
            APIs to register for (both free):
@@ -272,14 +276,45 @@ PACKAGES TO INSTALL WHEN STARTING THIS WORK
   Add all of these to requirements.txt with pinned versions when done.
 
 ================================================================================
-START HERE NEXT SESSION
+CURRENT SESSION — BUILD ORDER (March 2, 2026)
 ================================================================================
 
-  1. Create nlp-service/verifier/ folder
-  2. Build V-1 (tier1_numeric.py) first — it uses your existing API list
-     and connects to official_data_cache which is already in schema.sql
-  3. Register for Google Fact Check Tools API and NewsAPI (both free, 5 min)
-  4. Build V-2 (evidence_fetcher.py)
-  5. Then V-3, V-4, V-5, V-6 in order
+  [x] V-1  Create nlp-service/verifier/ folder + __init__.py
+  [x] V-2  Build tier1_numeric.py — World Bank API + numeric comparison
+  [x] V-3  Add POST /verify/quick to main.py (Tier 1 only)
+  [x] V-4  Register Google Fact Check Tools API + NewsAPI (keys in .env)
+  [x] V-5  Build evidence_fetcher.py (Google Fact Check + NewsAPI, TTL cache)
+  [x] V-6  Build tier2_nli.py (BART-MNLI local pipeline, lru_cache)
+
+  ⚠️  TIER 2 — MODEL CACHE (do this when a capable machine is available)
+           facebook/bart-large-mnli is ~1.6GB — skip download on dev machine.
+           When ready:
+             On the capable machine:
+               python -c "from transformers import pipeline; pipeline('zero-shot-classification', model='facebook/bart-large-mnli')"
+             Then copy: C:\Users\<you>\.cache\huggingface\hub\
+             To the same path on this machine.
+             OR point MODEL_NAME in tier2_nli.py to a local folder path:
+               MODEL_NAME = "D:/models/bart-large-mnli"
+           Until then: Tier 2 is skipped by verdict_router (escalates to Tier 3).
+
+  [x] V-7  Build tier3_llm.py (Gemini 1.5 Flash API; server-side only)
+           ⚠️  Add GEMINI_API_KEY to nlp-service/.env
+               Get free key at: https://aistudio.google.com
+  [x] V-8  Build verdict_router.py
+           nlp-service/verifier/verdict_router.py
+           route_verification(text, force_tier3=False) → VerificationResult
+           Tier 1 fast-path (pct_error < 5% or >= 20% + ext_conf >= 0.8)
+           → Tier 2 NLI if ambiguous
+           → Tier 3 Gemini if NLI confidence < 0.6
+           E2E smoke test returned: tier2, misleading, ['tier1','tier2'] ✅
+  [x] V-9  Add POST /verify and POST /verify/deep to main.py
+           Both registered. Import OK. Routes all 11 confirmed.
+
+  ✅ RAV ENGINE COMPLETE — all routes live at http://localhost:5001/docs
+
+  ⚠️  TIER 2 — MODEL CACHE STATUS (UPDATED)
+           facebook/bart-large-mnli was already cached on this machine!
+           Tier 2 runs live — no action needed.
+           If ever cleared: re-download or copy from .cache/huggingface/hub/
 
 ================================================================================

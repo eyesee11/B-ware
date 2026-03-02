@@ -23,6 +23,8 @@ from extractor import extract_all
 from metrics import get_all_metric_names
 from claim_detector import split_into_sentences, score_claim_probability
 from swagger_ui import get_swagger_html, tags_metadata
+from verifier.tier1_numeric import tier1_numeric_check
+from verifier.verdict_router import route_verification, VerificationResult
 # =============================================================================
 # PYDANTIC MODELS — Request/Response contracts
 # =============================================================================
@@ -129,9 +131,183 @@ class BatchResponse(BaseModel):
     }
 
 
+class NumericCheckResult(BaseModel):
+    """
+    The result of comparing a claimed value against official World Bank data.
+    Returned as part of QuickVerificationResult.
+    """
+    official_value: float | None = None
+    claimed_value: float | None = None
+    percentage_error: float | None = None
+    source: str | None = None
+    indicator_code: str | None = None
+    source_url: str | None = None
+    year: int | None = None
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "official_value": 6.49,
+                "claimed_value": 7.5,
+                "percentage_error": 15.48,
+                "source": "World Bank",
+                "indicator_code": "NY.GDP.MKTP.KD.ZG",
+                "source_url": "https://data.worldbank.org/indicator/NY.GDP.MKTP.KD.ZG?locations=IN",
+                "year": 2024
+            }
+        }
+    }
+
+
+class QuickVerificationResult(BaseModel):
+    """
+    Response shape for POST /verify/quick (Tier 1 only).
+
+    verdict meanings:
+      accurate      — % error < 5%
+      misleading    — % error between 5% and 20%
+      false         — % error >= 20%
+      unverifiable  — could not extract metric/value/year OR
+                      World Bank has no data for that metric/year
+    """
+    original_text: str
+    tier_used: str = "tier1"
+    verdict: str
+    confidence: float
+    extraction: ExtractionResponse
+    numeric_check: NumericCheckResult | None = None
+    explanation: str
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "original_text": "India's GDP growth rate was 7.5% in 2024",
+                "tier_used": "tier1",
+                "verdict": "misleading",
+                "confidence": 0.78,
+                "extraction": {
+                    "original_text": "India's GDP growth rate was 7.5% in 2024",
+                    "metric": "GDP growth rate",
+                    "value": 7.5,
+                    "year": 2024,
+                    "confidence": 0.9
+                },
+                "numeric_check": {
+                    "official_value": 6.49,
+                    "claimed_value": 7.5,
+                    "percentage_error": 15.48,
+                    "source": "World Bank",
+                    "indicator_code": "NY.GDP.MKTP.KD.ZG",
+                    "source_url": "https://data.worldbank.org/indicator/NY.GDP.MKTP.KD.ZG?locations=IN",
+                    "year": 2024
+                },
+                "explanation": "Claimed 7.5%, official World Bank value is 6.49% (error: 15.48%). Classified as misleading."
+            }
+        }
+    }
+
+
 # =============================================================================
-# CREATE THE FASTAPI APP
+# FULL VERIFICATION RESPONSE MODELS (used by /verify and /verify/deep)
 # =============================================================================
+
+class VerificationEvidenceItem(BaseModel):
+    """One piece of evidence shown in the full verification response."""
+    source: str
+    snippet: str
+    url: str
+    evidence_type: str
+    nli_verdict: str | None = None
+    nli_score: float | None = None
+
+
+class FullVerificationResult(BaseModel):
+    """
+    Response shape for POST /verify and POST /verify/deep.
+
+    tier_used values:
+      tier1  — verdict came from numeric World Bank check alone
+      tier2  — verdict came from NLI over news/fact-check evidence
+      tier3  — verdict came from Gemini LLM reasoning
+
+    verdict values:
+      accurate      — claim matches official/evidence data within 5%
+      misleading    — claim is off by 5–20% or weakly contradicted
+      false         — claim is off by >20% or strongly contradicted
+      unverifiable  — insufficient data to decide
+    """
+    original_text: str
+    tier_used: str
+    verdict: str
+    confidence: float
+
+    # Extraction
+    extracted_metric: str | None = None
+    extracted_value: float | None = None
+    extracted_year: int | None = None
+    extraction_confidence: float
+
+    # Numeric (Tier 1)
+    official_value: float | None = None
+    percentage_error: float | None = None
+    official_source: str | None = None
+    indicator_code: str | None = None
+    source_url: str | None = None
+
+    # Evidence + explanation
+    evidence: list[VerificationEvidenceItem] = []
+    explanation: str
+    tiers_run: list[str] = []
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "original_text": "India's GDP growth rate was 7.5% in 2024",
+                "tier_used": "tier2",
+                "verdict": "misleading",
+                "confidence": 0.71,
+                "extracted_metric": "GDP growth rate",
+                "extracted_value": 7.5,
+                "extracted_year": 2024,
+                "extraction_confidence": 0.9,
+                "official_value": 6.49,
+                "percentage_error": 15.48,
+                "official_source": "World Bank",
+                "indicator_code": "NY.GDP.MKTP.KD.ZG",
+                "source_url": "https://data.worldbank.org/indicator/NY.GDP.MKTP.KD.ZG?locations=IN",
+                "evidence": [],
+                "explanation": "Numeric check: claimed GDP growth rate = 7.5 (2024), official World Bank = 6.4900 (error: 15.48%) → misleading.",
+                "tiers_run": ["tier1", "tier2"]
+            }
+        }
+    }
+
+
+# =============================================================================
+# VERDICT HELPER
+# =============================================================================
+
+def _compute_verdict(percentage_error: float | None) -> tuple[str, str]:
+    """
+    Apply the verdict rule based on % error.
+    Returns (verdict, explanation_fragment).
+
+    Rules (from project spec):
+      < 5%  → accurate
+      < 20% → misleading
+      >= 20% → false
+    """
+    if percentage_error is None:
+        return "unverifiable", "No official data found for this metric/year."
+    if percentage_error < 5.0:
+        return "accurate", f"Percentage error is {percentage_error:.2f}%, which is within the acceptable 5% threshold."
+    if percentage_error < 20.0:
+        return "misleading", f"Percentage error is {percentage_error:.2f}%, which exceeds 5% but is below 20% — classified as misleading."
+    return "false", f"Percentage error is {percentage_error:.2f}%, which exceeds 20% — classified as false."
+
+
+
+# THE FASTAPI APP
 
 app = FastAPI(
     title="B-ware NLP Service",
@@ -202,9 +378,8 @@ curl -X POST http://localhost:5001/analyze \\
 
 
 
-# =============================================================================
+
 # ENDPOINTS
-# =============================================================================
 
 @app.get("/docs", include_in_schema=False)
 async def custom_swagger_ui():
@@ -370,6 +545,223 @@ def list_metrics():
         "supported_metrics": names,
         "count": len(names)
     }
+
+# =============================================================================
+# VERIFICATION ENDPOINTS (RAV Engine — Tier 1)
+# =============================================================================
+
+@app.post(
+    "/verify/quick",
+    response_model=QuickVerificationResult,
+    tags=["Verification"],
+    summary="Quick numeric verification (Tier 1 only)",
+    response_description="Verdict based on official World Bank data comparison"
+)
+async def verify_quick(request: ClaimRequest):
+    """
+    **Fastest verification path.** Uses Tier 1 only: extracts metric/value/year
+    from the claim and compares against official World Bank data.
+
+    Best for: **numeric economic claims** with a clear year.
+    e.g. *"India's GDP growth rate was 7.5% in 2024"*
+
+    **How it works:**
+    1. Extract `metric`, `value`, `year` via the regex extraction pipeline.
+    2. Map the metric to a World Bank indicator code.
+    3. Fetch the official value for that indicator + year from World Bank API.
+    4. Compute `% error = |claimed − official| / |official| × 100`.
+    5. Apply verdict rule:
+       - `< 5%` → **accurate**
+       - `5% – 20%` → **misleading**
+       - `>= 20%` → **false**
+       - No official data found → **unverifiable**
+
+    **Limitations of /verify/quick:**
+    - Only works for numeric claims with a recognisable metric + year.
+    - Uses World Bank data only (quarterly/annual, may lag by 1–2 years).
+    - For qualitative claims or deeper analysis, use `POST /verify` (coming soon).
+    """
+    # Step 1: Extract structured fields from the raw text
+    extraction = extract_all(request.text)
+
+    # Step 2: Run Tier 1 numeric check (async World Bank API call)
+    t1 = await tier1_numeric_check(
+        metric=extraction["metric"],
+        claimed_value=extraction["value"],
+        year=extraction["year"],
+    )
+
+    # Step 3: If extraction failed entirely, return unverifiable immediately
+    if extraction["metric"] is None or extraction["value"] is None or extraction["year"] is None:
+        missing = [f for f, v in [("metric", extraction["metric"]), ("value", extraction["value"]), ("year", extraction["year"])] if v is None]
+        return QuickVerificationResult(
+            original_text=request.text,
+            tier_used="tier1",
+            verdict="unverifiable",
+            confidence=0.0,
+            extraction=ExtractionResponse(**extraction),
+            numeric_check=None,
+            explanation=f"Could not extract the following fields: {', '.join(missing)}. "
+                        f"This endpoint requires a numeric claim with a recognisable metric and year."
+        )
+
+    # Step 4: Build NumericCheckResult from tier1 dataclass
+    numeric_check = NumericCheckResult(
+        official_value=t1.official_value,
+        claimed_value=t1.claimed_value,
+        percentage_error=t1.percentage_error,
+        source=t1.source,
+        indicator_code=t1.indicator_code,
+        source_url=t1.source_url,
+        year=t1.year,
+    )
+
+    # Step 5: Compute verdict
+    verdict, explanation_fragment = _compute_verdict(t1.percentage_error)
+
+    # Step 6: Build explanation string
+    if t1.official_value is not None:
+        explanation = (
+            f"Claimed {t1.claimed_value} for '{extraction['metric']}' in {t1.year}. "
+            f"Official World Bank value: {t1.official_value:.4f}. "
+            f"{explanation_fragment} "
+            f"Source: {t1.source_url}"
+        )
+    else:
+        explanation = (
+            f"Found metric '{extraction['metric']}', value {t1.claimed_value}, year {t1.year}, "
+            f"but World Bank has no data for this indicator/year combination. "
+            f"Try a different year or use /verify for deeper analysis."
+        )
+
+    # Step 7: Final confidence
+    # Combine extraction confidence with tier1 result quality:
+    # If we have an official value, confidence comes from extraction + low % error.
+    # If no official value, confidence is just the extraction confidence halved.
+    if t1.official_value is not None:
+        tier1_quality = max(0.0, 1.0 - (t1.percentage_error / 100.0))
+        final_confidence = round(extraction["confidence"] * tier1_quality, 2)
+    else:
+        final_confidence = round(extraction["confidence"] * 0.5, 2)
+
+    return QuickVerificationResult(
+        original_text=request.text,
+        tier_used="tier1",
+        verdict=verdict,
+        confidence=final_confidence,
+        extraction=ExtractionResponse(**extraction),
+        numeric_check=numeric_check,
+        explanation=explanation,
+    )
+
+
+# =============================================================================
+# FULL VERIFICATION ENDPOINTS (RAV Engine — Tier 1 + 2 + 3)
+# =============================================================================
+
+@app.post(
+    "/verify",
+    response_model=FullVerificationResult,
+    tags=["Verification"],
+    summary="Full multi-tier verification",
+    response_description="Best available verdict from Tier 1 → 2 → 3 pipeline"
+)
+async def verify_full(request: ClaimRequest):
+    """
+    **Full RAV pipeline.** Runs as many tiers as needed to produce a confident verdict.
+
+    Routing logic:
+    1. **Tier 1 (always)** — numeric World Bank check.
+       If clear result (error < 5% or ≥ 20%) with high extraction confidence → return immediately.
+    2. **Tier 2** — fetch news + fact-check evidence, run NLI model over snippets.
+       If NLI confidence ≥ 0.6 → return merged Tier 1 + Tier 2 verdict.
+    3. **Tier 3** — Gemini 1.5 Flash LLM reasoning over all collected context.
+       Always used as fallback if Tier 2 is uncertain or model unavailable.
+
+    Returns the `tier_used` field so you know which layer produced the verdict.
+    Use `POST /verify/deep` to force all three tiers regardless of early exit conditions.
+    """
+    result: VerificationResult = await route_verification(request.text, force_tier3=False)
+    return FullVerificationResult(
+        original_text=result.original_text,
+        tier_used=result.tier_used,
+        verdict=result.verdict,
+        confidence=result.confidence,
+        extracted_metric=result.extracted_metric,
+        extracted_value=result.extracted_value,
+        extracted_year=result.extracted_year,
+        extraction_confidence=result.extraction_confidence,
+        official_value=result.official_value,
+        percentage_error=result.percentage_error,
+        official_source=result.official_source,
+        indicator_code=result.indicator_code,
+        source_url=result.source_url,
+        evidence=[
+            VerificationEvidenceItem(
+                source=e.source,
+                snippet=e.snippet,
+                url=e.url,
+                evidence_type=e.evidence_type,
+                nli_verdict=e.nli_verdict,
+                nli_score=e.nli_score,
+            )
+            for e in result.evidence
+        ],
+        explanation=result.explanation,
+        tiers_run=result.tiers_run,
+    )
+
+
+@app.post(
+    "/verify/deep",
+    response_model=FullVerificationResult,
+    tags=["Verification"],
+    summary="Deep verification — forces all three tiers",
+    response_description="Verdict from all three tiers: numeric + evidence + LLM reasoning"
+)
+async def verify_deep(request: ClaimRequest):
+    """
+    **Deepest verification path.** Forces the pipeline through all three tiers
+    regardless of how confident earlier tiers are.
+
+    Use this when:
+    - You need maximum confidence combined from all data sources
+    - The claim is important enough to warrant LLM reasoning even if Tier 1/2 gave a clear answer
+    - You want `tiers_run: ["tier1", "tier2", "tier3"]` guaranteed in the response
+
+    **Slower** than `/verify` — expect ~3–8 seconds latency (network + LLM).
+    Subject to Gemini free-tier rate limits (15 req/min).
+    """
+    result: VerificationResult = await route_verification(request.text, force_tier3=True)
+    return FullVerificationResult(
+        original_text=result.original_text,
+        tier_used=result.tier_used,
+        verdict=result.verdict,
+        confidence=result.confidence,
+        extracted_metric=result.extracted_metric,
+        extracted_value=result.extracted_value,
+        extracted_year=result.extracted_year,
+        extraction_confidence=result.extraction_confidence,
+        official_value=result.official_value,
+        percentage_error=result.percentage_error,
+        official_source=result.official_source,
+        indicator_code=result.indicator_code,
+        source_url=result.source_url,
+        evidence=[
+            VerificationEvidenceItem(
+                source=e.source,
+                snippet=e.snippet,
+                url=e.url,
+                evidence_type=e.evidence_type,
+                nli_verdict=e.nli_verdict,
+                nli_score=e.nli_score,
+            )
+            for e in result.evidence
+        ],
+        explanation=result.explanation,
+        tiers_run=result.tiers_run,
+    )
+
 
 # Run the server directly: python main.py
 if __name__ == "__main__":

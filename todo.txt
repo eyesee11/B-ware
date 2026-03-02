@@ -1,27 +1,41 @@
 ================================================================================
 B-ware — PROJECT MASTER TODO
-Last updated: March 2, 2026
+Last updated: March 3, 2026
 ================================================================================
 
 ================================================================================
-NLP SERVICE — STATUS: ✅ CORE COMPLETE
+NLP SERVICE — STATUS: ✅ FULLY COMPLETE (RAV ENGINE DONE)
 ================================================================================
 
 FILES IMPLEMENTED:
-  ✅ nlp-service/main.py         — FastAPI app, 5 endpoints
-  ✅ nlp-service/extractor.py    — extract_year, extract_value, extract_all
-  ✅ nlp-service/metrics.py      — 10 metrics, strong/weak regex patterns
-  ✅ nlp-service/claim_detector.py — sentence splitting + claim probability scoring
-  ✅ nlp-service/requirements.txt — fastapi, uvicorn, pydantic, pytest, httpx
+  ✅ nlp-service/main.py              — FastAPI app, 11 endpoints
+  ✅ nlp-service/extractor.py         — extract_year, extract_value, extract_all
+  ✅ nlp-service/metrics.py           — 10 metrics, strong/weak regex patterns
+  ✅ nlp-service/claim_detector.py    — sentence splitting + claim probability scoring
+  ✅ nlp-service/requirements.txt     — all deps pinned
   ✅ nlp-service/tests/test_extractor.py — 24 test cases
+  ✅ nlp-service/verifier/__init__.py
+  ✅ nlp-service/verifier/tier1_numeric.py   — World Bank numeric check + TTL cache
+  ✅ nlp-service/verifier/evidence_fetcher.py — Google Fact Check + NewsAPI
+  ✅ nlp-service/verifier/tier2_nli.py       — BART-MNLI local NLI pipeline
+  ✅ nlp-service/verifier/tier3_llm.py       — Gemini 1.5 Flash LLM reasoning
+  ✅ nlp-service/verifier/verdict_router.py  — RAV orchestrator (all 3 tiers)
 
-ENDPOINTS LIVE:
-  GET  /health    — service health check
-  POST /extract   — single claim → {metric, value, year, confidence}
-  POST /batch     — list of claims → list of extraction results (max 50)
-  POST /analyze   — raw paragraph → auto-split into sentences → score each
-                    sentence for claim probability → extract only high-prob ones
-  GET  /metrics   — list all 10 supported economic metrics
+ALL ENDPOINTS LIVE (http://localhost:5001/docs):
+  GET  /health         — service health check
+  POST /extract        — single claim → {metric, value, year, confidence}
+  POST /batch          — list of claims → list of extraction results (max 50)
+  POST /analyze        — raw paragraph → auto-split + score + extract
+  GET  /metrics        — list all 10 supported economic metrics
+  POST /verify/quick   — Tier 1 only (World Bank numeric, fastest)
+  POST /verify         — Full adaptive pipeline (Tier 1 → 2 → 3 as needed)
+  POST /verify/deep    — Forces all 3 tiers (numeric + NLI + LLM reasoning)
+
+SMOKE TEST RESULT (March 3, 2026):
+  claim      : "India GDP growth rate was 7.5% in 2024"
+  tier_used  : tier2
+  verdict    : misleading
+  tiers_run  : ['tier1', 'tier2']  ← BART-MNLI already cached on this machine ✅
 
 TO RUN:
   cd nlp-service
@@ -119,65 +133,113 @@ PART 2: FULL INTEGRATION ARCHITECTURE
 ================================================================================
 
   User Browser (React :3000)
-       │ HTTP POST /api/claims
+       │ HTTP POST /api/claims/verify
        ▼
-  Backend (Node.js/Express :5000)
-       │ 1. Auth middleware — verify JWT
-       │ 2. Save claim to DB (status: 'pending')
-       │ 3. POST http://localhost:5001/extract  → NLP Service
-       │ 4. Receive {metric, value, year, confidence}
-       │ 5. Query official_data_cache WHERE metric_name=? AND year=?
-       │ 6. Calculate difference, percentage_error, verdict
-       │ 7. INSERT into verification_log
-       │ 8. UPDATE claims SET credibility_score, status='verified'
-       │ 9. Return full verdict to frontend
-       │
-  ┌────┴────────────────┐
-  │                     │
-  ▼                     ▼
-  NLP Service       MySQL Database
-  (Python :5001)    (localhost:3306)
-                    tables: users, claims,
-                            official_data_cache,
-                            verification_log
+  ┌─────────────────────────────────────────────────────────┐
+  │           Backend (Node.js/Express :5000)               │
+  │  1. Auth middleware — verify JWT                        │
+  │  2. Check Redis cache: has this exact claim been        │
+  │     verified in the last 24h? → return cached result    │
+  │  3. Save claim to MySQL (status: 'pending')             │
+  │  4. POST http://localhost:5001/verify   → NLP service   │
+  │  5. Receive FullVerificationResult JSON                 │
+  │  6. Store verdict in MySQL verification_log             │
+  │  7. UPDATE claims SET verdict, confidence, status       │
+  │  8. Cache result in Redis (TTL 24h)                     │
+  │  9. Return full verdict to frontend                     │
+  └──────────┬──────────────────────┬──────────────────────┘
+             │                      │
+             ▼                      ▼
+        MySQL :3306             Redis :6379
+        ─────────────           ──────────────────────────
+        users                   claim_result:<hash>  TTL 24h
+        claims                  trending_feed        TTL 5min
+        official_data_cache     rate_limit:<ip>      TTL 15min
+        verification_log        jwt_blacklist:<jti>  TTL = token exp
+        trending_stories        session:<userId>     TTL 7d
+        source_stats
+             │
+             ▼
+        NLP Service :5001
+        (internal only — never called by frontend directly)
 
-VERDICT LOGIC (goes in claimController.js):
-  percentageError < 5%  → "accurate"
-  percentageError < 20% → "misleading"
-  percentageError >= 20% → "false"
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  WHY THE BACKEND LAYER IS STILL NEEDED                                      │
+│  The NLP service is a raw microservice with no auth, no DB, no rate limit.  │
+│  The Node backend is the secure API gateway that:                           │
+│  • Enforces authentication (JWT) on every request                           │
+│  • Persists all claims + verdicts to MySQL for history/analytics            │
+│  • Deduplicates: same claim in last 24h → Redis cache, skip NLP call        │
+│  • Rate limits abusive clients (express-rate-limit + Redis store)           │
+│  • Orchestrates Trending Rumours pipeline (fetch → analyze → rank → cache)  │
+│  • Provides all the REST endpoints the React frontend talks to              │
+└─────────────────────────────────────────────────────────────────────────────┘
 
 ================================================================================
 PART 3: BACKEND — INTEGRATION CHECKLIST
 ================================================================================
 
+  ── SETUP ─────────────────────────────────────────────────────────────────
+
   [ ] I-1  MySQL setup — run database/schema.sql against a local MySQL instance
            mysql -u root -p < database/schema.sql
+           Schema needs NEW tables: trending_stories, source_stats (add below)
 
   [ ] I-2  backend/config/db.js — MySQL connection pool
            Uses mysql2/promise, reads DB_HOST/DB_USER/DB_PASSWORD/DB_NAME from .env
+
+  [ ] I-2b backend/config/redis.js — Redis client
+           npm install ioredis
+           const Redis = require('ioredis')
+           const redis = new Redis({ host: 'localhost', port: 6379 })
+           module.exports = redis
+           ⚠️  Install Redis: https://github.com/microsoftarchive/redis/releases (Windows)
+               OR use Docker: docker run -d -p 6379:6379 redis
 
   [ ] I-3  backend/server.js — Express app
            Register cors, json, routes. Listen on port 5000.
 
   [ ] I-4  backend/middleware/auth.js — JWT verification middleware
            Reads Authorization: Bearer <token>, verifies with JWT_SECRET
+           Also check Redis jwt_blacklist:<jti> → if found, reject (logout support)
 
   [ ] I-5  backend/controllers/authController.js — register + login
            register: hash password with bcryptjs, INSERT user, return JWT
-           login: verify password, return JWT
+           login: verify password, return JWT, cache session:<userId> in Redis (TTL 7d)
+           logout: add token jti to Redis jwt_blacklist:<jti> (TTL = remaining token life)
 
   [ ] I-6  backend/routes/authRoutes.js
            POST /api/auth/register → authController.register
            POST /api/auth/login    → authController.login
+           POST /api/auth/logout   → authController.logout
+
+  ── CORE CLAIM VERIFICATION ────────────────────────────────────────────────
 
   [ ] I-7  backend/controllers/claimController.js — the core logic
-           POST claim → call NLP /extract → compare vs official_data_cache
-           → calculate verdict → save to DB → return result
+           submitClaim flow:
+             a) Hash the claim text (md5 or sha256)
+             b) Check Redis: GET claim_result:<hash> → if hit, return cached verdict
+             c) INSERT into claims (status: 'pending')
+             d) POST localhost:5001/verify  ← full RAV pipeline (all 3 tiers)
+             e) INSERT into verification_log (tier_used, verdict, confidence,
+                official_value, percentage_error, evidence_json, explanation)
+             f) UPDATE claims SET verdict, confidence, status='verified'
+             g) Update source_stats: increment total_claims + verdict bucket
+             h) SET Redis claim_result:<hash> = JSON.stringify(result)  EX 86400
+             i) Return full FullVerificationResult to frontend
+
+           Also expose:
+             getUserClaims: GET /api/claims → SELECT * FROM claims WHERE user_id=?
+             getClaimById:  GET /api/claims/:id → full claim + verification_log JOIN
+             getStats:      GET /api/claims/stats → verdict distribution, avg conf
 
   [ ] I-8  backend/routes/claimRoutes.js
-           POST /api/claims         → claimController.submitClaim (auth required)
-           GET  /api/claims         → claimController.getUserClaims (auth required)
-           GET  /api/claims/:id     → claimController.getClaimById (auth required)
+           POST /api/claims/verify  → claimController.submitClaim  (auth required)
+           POST /api/claims/quick   → calls /verify/quick on NLP   (auth required)
+           POST /api/claims/deep    → calls /verify/deep on NLP    (auth required)
+           GET  /api/claims          → claimController.getUserClaims (auth required)
+           GET  /api/claims/:id      → claimController.getClaimById  (auth required)
+           GET  /api/claims/stats    → claimController.getStats       (auth required)
 
   [ ] I-9  backend/seeders/worldBankSeeder.js
            Fetch World Bank API for all 10 metrics × last 10 years
@@ -186,27 +248,240 @@ PART 3: BACKEND — INTEGRATION CHECKLIST
 
   [ ] I-10 .env file
            DB_HOST=localhost, DB_USER=root, DB_PASSWORD=password,
-           DB_NAME=bware, JWT_SECRET=<random string>, NLP_SERVICE_URL=http://localhost:5001
+           DB_NAME=bware, JWT_SECRET=<random string>
+           NLP_SERVICE_URL=http://localhost:5001
+           REDIS_URL=redis://localhost:6379
 
   [ ] I-11 Fix package.json — change "main": "index.js" → "main": "server.js"
            Add scripts: "start": "node server.js", "dev": "nodemon server.js"
 
+  ── TRENDING RUMOURS FEATURE ───────────────────────────────────────────────
+  (see full spec in PART 3b below)
+
+  [ ] I-12 database/schema.sql — add trending_stories table
+           See PART 3b for full column list
+
+  [ ] I-13 database/schema.sql — add source_stats table
+           source_name, total_claims, accurate_count, misleading_count,
+           false_count, last_updated
+
+  [ ] I-14 backend/controllers/trendingController.js
+           getTrending: GET /api/trending
+             1. Check Redis GET trending_feed → if hit, return (TTL 5min)
+             2. SELECT * FROM trending_stories WHERE is_active=1
+                ORDER BY danger_score DESC, fetched_at DESC LIMIT 50
+             3. SET Redis trending_feed = JSON (EX 300)
+             4. Return list
+
+           refreshTrending: POST /api/trending/refresh  (admin only OR cron)
+             1. Call NewsAPI + Google Fact Check for latest India news
+             2. For each article → POST localhost:5001/analyze → extract claims
+             3. For each claim  → POST localhost:5001/verify → get verdict
+             4. Compute danger_score (see PART 3b formula)
+             5. UPSERT into trending_stories
+             6. DEL Redis trending_feed  ← invalidate cache
+
+  [ ] I-15 backend/routes/trendingRoutes.js
+           GET  /api/trending          → trendingController.getTrending  (public)
+           POST /api/trending/refresh  → trendingController.refreshTrending (admin)
+
+  [ ] I-16 backend/jobs/trendingJob.js — cron job
+           npm install node-cron
+           Run refreshTrending every 30 minutes automatically
+           cron.schedule('*/30 * * * *', refreshTrending)
+           Start from server.js on boot
+
 ================================================================================
-PART 4: FRONTEND CHECKLIST (React)
+PART 3b: TRENDING RUMOURS FEATURE — FULL SPEC
 ================================================================================
 
-  [ ] F-1  Create React app inside frontend/
+PURPOSE:
+  A public-facing page that continuously monitors news feeds and fact-check
+  databases, auto-runs the RAV engine on every story, and surface the
+  most DANGEROUS / MISLEADING stories right now — ranked by harm potential.
+
+DANGER SCORE FORMULA:
+  danger_score (0–100) = weighted sum of:
+    verdict_weight   : accurate=0, misleading=40, false=80, unverifiable=15
+    confidence_bonus : confidence * 20  (max 20 points)
+    recency_bonus    : if published < 2h ago → +10, < 24h → +5, else 0
+    spread_bonus     : (source_count - 1) * 5  (penalise widely-spread falsehoods)
+
+  e.g. a false claim (80) with 0.9 confidence (+18) from 3 sources (+10)
+       published 1h ago (+10) → danger_score = 118 → cap at 100
+
+MYSQL TABLE — trending_stories:
+  CREATE TABLE trending_stories (
+    id              INT AUTO_INCREMENT PRIMARY KEY,
+    headline        TEXT NOT NULL,
+    claim_text      TEXT,                  -- extracted claim from headline
+    source_name     VARCHAR(255),          -- "Times of India", "NDTV", etc.
+    source_url      TEXT,
+    published_at    DATETIME,
+    fetched_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    verdict         ENUM('accurate','misleading','false','unverifiable'),
+    confidence      FLOAT,
+    danger_score    FLOAT DEFAULT 0,
+    metric          VARCHAR(100),
+    official_value  FLOAT,
+    claimed_value   FLOAT,
+    pct_error       FLOAT,
+    explanation     TEXT,
+    evidence_json   JSON,                  -- full evidence array from NLP service
+    tier_used       VARCHAR(20),
+    is_active       TINYINT(1) DEFAULT 1,  -- soft delete
+    INDEX idx_danger (danger_score DESC),
+    INDEX idx_fetched (fetched_at DESC)
+  );
+
+NEWS SOURCES TO PULL FROM (backend fetches these, not frontend):
+  Primary:
+    NewsAPI: q='India economy OR GDP OR inflation' + country=in
+    Google Fact Check: query='India' → latest fact checks from AltNews,
+                       FactChecker.in, Boom, AFP India, NDTV Fact Check
+  Secondary (add later):
+    GNews API (free, 100/day): https://gnews.io
+    The Hindu RSS feed: https://www.thehindu.com/feeder/default.rss
+    PIB (Press Information Bureau): https://pib.gov.in/allRel.aspx
+    Moneycontrol API / RSS
+
+BACKEND FLOW:
+  Every 30 min (node-cron job):
+    1. GET NewsAPI ?q=India economy&pageSize=20
+    2. GET Google Fact Check ?query=India&pageSize=20
+    3. Deduplicate by headline similarity (skip if URL already in DB)
+    4. For each article:
+         a. POST localhost:5001/analyze  → extract claim sentences
+         b. Take highest-confidence claim
+         c. POST localhost:5001/verify   → get verdict + evidence
+         d. Compute danger_score
+         e. INSERT into trending_stories
+    5. DEL Redis key: trending_feed  (force cache refresh)
+    6. Mark stories older than 48h: SET is_active=0
+
+REST API ENDPOINTS:
+  GET /api/trending
+    → Returns top 50 active stories, ordered by danger_score DESC
+    → Cached in Redis (trending_feed) with 5-minute TTL
+    → Response: { stories: [...], last_updated, total }
+    → PUBLIC endpoint (no auth required — home page widget)
+
+  GET /api/trending/:id
+    → Full detail for one story including evidence array
+    → No Redis cache needed (rarely called)
+
+  POST /api/trending/refresh
+    → Admin only — trigger manual refresh now
+    → Useful for testing without waiting for cron
+
+FRONTEND PAGE — /trending:
+  Layout: Card grid, sorted by danger_score
+  Each card shows:
+    - Headline (truncated to 2 lines)
+    - Source name + published time ("2h ago")
+    - Verdict badge (color-coded: red=false, orange=misleading, green=accurate)
+    - Danger score bar (0–100, red gradient)
+    - Claimed vs Official value comparison (if numeric)
+    - "View full analysis" → expands evidence accordion
+  Filter chips at top: ALL | FALSE | MISLEADING | ACCURATE | UNVERIFIABLE
+  Sort toggle: DANGER SCORE | RECENCY
+  Auto-refreshes every 5 minutes (poll GET /api/trending)
+
+================================================================================
+PART 3c: MYSQL USAGE MAP — WHERE EVERY TABLE IS USED
+================================================================================
+
+  TABLE                | WHO WRITES          | WHO READS           | PURPOSE
+  ─────────────────────┼─────────────────────┼─────────────────────┼────────────────────────
+  users                | authController      | authController      | Login, register, profile
+                       |                     | auth middleware     | JWT user lookup
+  ─────────────────────┼─────────────────────┼─────────────────────┼────────────────────────
+  claims               | claimController     | claimController     | User submission history
+                       |                     | trendingController  | Stats, dedup
+  ─────────────────────┼─────────────────────┼─────────────────────┼────────────────────────
+  official_data_cache  | worldBankSeeder     | (legacy only —      | Pre-seeded reference
+                       | (cron refresh)      |  NLP does live fetch)| values from World Bank
+                       |                     |                     | now. Keep for offline
+                       |                     |                     | fallback.
+  ─────────────────────┼─────────────────────┼─────────────────────┼────────────────────────
+  verification_log     | claimController     | claimController     | Full audit trail of
+                       | trendingController  | adminController     | every NLP response,
+                       |                     |                     | tier used, evidence JSON
+  ─────────────────────┼─────────────────────┼─────────────────────┼────────────────────────
+  trending_stories     | trendingJob (cron)  | trendingController  | Live rumour feed with
+                       | trendingController  | Frontend /trending  | danger scores
+  ─────────────────────┼─────────────────────┼─────────────────────┼────────────────────────
+  source_stats         | claimController     | adminController     | Per-source accuracy
+                       | trendingController  | Frontend leaderboard| leaderboard
+
+  ADD THESE TABLES TO database/schema.sql:
+    - trending_stories (see PART 3b for CREATE TABLE)
+    - source_stats:
+        CREATE TABLE source_stats (
+          id               INT AUTO_INCREMENT PRIMARY KEY,
+          source_name      VARCHAR(255) UNIQUE NOT NULL,
+          total_claims     INT DEFAULT 0,
+          accurate_count   INT DEFAULT 0,
+          misleading_count INT DEFAULT 0,
+          false_count      INT DEFAULT 0,
+          avg_danger_score FLOAT DEFAULT 0,
+          last_updated     DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+================================================================================
+PART 3d: REDIS USAGE MAP — EVERY KEY PATTERN EXPLAINED
+================================================================================
+
+  REDIS KEY PATTERN          | TTL    | SET BY              | READ BY             | PURPOSE
+  ───────────────────────────┼────────┼─────────────────────┼─────────────────────┼──────────────────────────
+  claim_result:<md5hash>     | 24h    | claimController     | claimController     | Deduplication: same claim
+                             |        |                     |                     | within 24h → skip NLP call
+  ───────────────────────────┼────────┼─────────────────────┼─────────────────────┼──────────────────────────
+  trending_feed              | 5min   | trendingController  | trendingController  | Cache GET /api/trending
+                             |        | trendingJob         |                     | response (expensive query)
+  ───────────────────────────┼────────┼─────────────────────┼─────────────────────┼──────────────────────────
+  rate_limit:<ip>            | 15min  | express-rate-limit  | express-rate-limit  | 100 req/15min per IP
+                             |        | (rate-limit-redis)  |                     | block abuse
+  ───────────────────────────┼────────┼─────────────────────┼─────────────────────┼──────────────────────────
+  jwt_blacklist:<jti>        | = token| authController      | auth middleware     | Logout: invalidate a
+                             | exp    | (logout endpoint)   |                     | specific JWT before expiry
+  ───────────────────────────┼────────┼─────────────────────┼─────────────────────┼──────────────────────────
+  session:<userId>           | 7d     | authController      | auth middleware     | Remember "logged in"
+                             |        | (login)             |                     | across devices. INCR to
+                             |        |                     |                     | count active sessions.
+  ───────────────────────────┼────────┼─────────────────────┼─────────────────────┼──────────────────────────
+  stats_cache                | 10min  | claimController     | Frontend /dashboard | GET /api/claims/stats
+                             |        |                     |                     | (aggregate queries are slow)
+  ───────────────────────────┼────────┼─────────────────────┼─────────────────────┼──────────────────────────
+  trending_job_lock          | 5min   | trendingJob         | trendingJob         | Distributed lock: prevent
+                             |        |                     |                     | two cron runs overlapping
+                             |        |                     |                     | SET NX EX 300
+
+  INSTALL:
+    npm install ioredis rate-limit-redis express-rate-limit
+    (ioredis is the modern Redis client for Node.js — faster than redis package)
+
+  REDIS VS MYSQL DECISION RULE:
+    "Do I need to query this data with SQL joins or filtering?"  → MySQL
+    "Do I need this data in under 1ms with no join?"             → Redis
+    "Is this data derived/computed and expensive to recompute?"  → Redis cache
+    "Does this data need to survive a Redis restart?"            → MySQL
+    Redis is a CACHE LAYER on top of MySQL, not a replacement.
+    Always write to MySQL first, then cache in Redis.
            npx create-react-app . OR npx create-next-app .
+           Recommended stack: Create React App + React Router v6 + Axios + Recharts
 
   [ ] F-2  Auth screens — Login page + Register page
            Form → POST /api/auth/login → store JWT in localStorage
+           On logout → POST /api/auth/logout (backend blacklists JWT in Redis)
 
   [ ] F-3  Single Claim page
-           Text input → POST /api/claims → show verdict card
+           Text input → POST /api/claims/verify → show verdict card
            (metric, value, year, official value, % error, verdict badge)
+           Add a "Quick" vs "Deep" toggle (calls /claims/quick or /claims/deep)
 
   [ ] F-4  Paragraph Analyzer page
-           Textarea → POST http://localhost:5001/analyze → show sentence-by-sentence
+           Textarea → POST localhost:5001/analyze → show sentence-by-sentence
            breakdown with claim_probability bar and verdict for each extracted claim
 
   [ ] F-5  Dashboard / History page
@@ -220,9 +495,31 @@ PART 4: FRONTEND CHECKLIST (React)
            - Scatter plot: confidence vs percentage_error
            Recommended library: recharts (React-native, lightweight)
 
-  [ ] F-7  Trending Claims widget
+  [ ] F-7  Trending Claims widget (sidebar / homepage strip)
            GET /api/claims/trending → most submitted claims this week
            Show on homepage / sidebar
+
+  [ ] F-8  TRENDING RUMOURS PAGE  (/trending)
+           Full page dedicated to live dangerous rumours feed.
+           See PART 3b for full layout spec.
+           Key components:
+             <DangerScoreBar score={story.danger_score} />
+             <VerdictBadge verdict={story.verdict} />
+             <EvidenceAccordion evidence={story.evidence_json} />
+             <FilterChips onFilter={setFilter} />
+           Polling: setInterval(() => fetchTrending(), 300_000)  ← every 5 min
+           OR use React Query with refetchInterval: 300_000
+           Color coding:
+             false       → bg-red-600   danger bar full red
+             misleading  → bg-orange-500
+             accurate    → bg-green-600
+             unverifiable→ bg-gray-500
+
+  [ ] F-9  Source Credibility Leaderboard page  (/sources)
+           GET /api/trending/sources → source_stats table
+           Table: source name | total claims | accurate% | false% | avg danger
+           Sort by most dangerous source first
+           Shows which outlets spread the most misinformation
 
 ================================================================================
 PART 5: NEW FEATURES TO BUILD (after MVP)
@@ -311,11 +608,53 @@ TRAINING DATASETS (for Phase 2):
 CURRENT NEXT STEP
 ================================================================================
 
-  Priority order:
-  1. Backend I-1 through I-11  (gets the data pipeline working end-to-end)
-  2. NLP N-3, N-4, N-5         (CORS + error handling + better /analyze response)
-  3. Frontend F-1 through F-6  (visible product)
-  4. NLP N-1, N-2              (fiscal year + word-form numbers — nice to have)
-  5. New features X-1 onwards  (after MVP is live)
+  Priority order (updated March 3, 2026):
+
+  ── PHASE A: RAV ENGINE ✅ COMPLETE ───────────────────────────────────────────
+  ✅  RAV V-1  tier1_numeric.py     — World Bank API + numeric comparison
+  ✅  RAV V-2  evidence_fetcher.py  — Google Fact Check + NewsAPI snippets
+  ✅  RAV V-3  tier2_nli.py         — BART-MNLI NLI model (already cached ✅)
+  ✅  RAV V-4  tier3_llm.py         — Gemini 1.5 Flash API
+  ✅  RAV V-5  verdict_router.py    — orchestrate all three tiers
+  ✅  RAV V-6  new endpoints        — POST /verify, /verify/quick, /verify/deep
+
+  ── PHASE B: NLP CLEANUP (do before wiring backend) ─────────────────────────
+  1. NLP N-3  CORS middleware (allow :3000 and :5000)
+  2. NLP N-4  Error handling in endpoints (try/except + HTTPException)
+  3. NLP N-5  Improve /analyze response shape (add claim_probability per sentence)
+  4. NLP N-1  Fiscal year support (FY2024-25 → 2025)
+  5. NLP N-2  Word-form number support (billion, lakh, crore)
+
+  ── PHASE C: BACKEND (after NLP cleanup) ─────────────────────────────────────
+  6.  Backend I-1    MySQL setup — run schema.sql (add trending/source tables)
+  7.  Backend I-2    db.js connection pool (mysql2/promise)
+  8.  Backend I-2b   redis.js — ioredis client setup
+  9.  Backend I-3    server.js — Express app skeleton
+  10. Backend I-4    auth.js JWT middleware (+ Redis blacklist check)
+  11. Backend I-5    authController.js (register, login, logout)
+  12. Backend I-6    authRoutes.js
+  13. Backend I-7    claimController.js (Redis dedup → NLP → MySQL → Redis cache)
+  14. Backend I-8    claimRoutes.js (/verify, /quick, /deep, /stats)
+  15. Backend I-9    worldBankSeeder.js
+  16. Backend I-10   .env (DB + Redis + NLP_SERVICE_URL)
+  17. Backend I-11   Fix package.json
+  18. Backend I-12   schema.sql — add trending_stories + source_stats tables
+  19. Backend I-13   trendingController.js (danger score, Redis cache)
+  20. Backend I-14   trendingRoutes.js
+  21. Backend I-15   trendingJob.js (node-cron, every 30 min)
+
+  ── PHASE D: FRONTEND (after backend is wired up) ────────────────────────────
+  22. Frontend F-1  Create React app
+  23. Frontend F-2  Auth screens (login, register, logout)
+  24. Frontend F-3  Single Claim page (Quick / Full / Deep toggle)
+  25. Frontend F-4  Paragraph Analyzer page
+  26. Frontend F-5  Dashboard / History page
+  27. Frontend F-6  Data Visualization page (recharts)
+  28. Frontend F-7  Trending Claims widget (homepage sidebar)
+  29. Frontend F-8  TRENDING RUMOURS page (full /trending, danger rank, auto-poll)
+  30. Frontend F-9  Source Credibility Leaderboard page
+
+  ── PHASE E: NEW FEATURES (post-MVP) ─────────────────────────────────────────
+  31. X-1 onwards  (see PART 5 below)
 
 ================================================================================
