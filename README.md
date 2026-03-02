@@ -1,242 +1,444 @@
-# B-ware : No Lies Told
+<p align="center">
+  <img src="docs/images/bware-logo.png" alt="B-ware Logo" width="200"/>
+</p>
 
-## An AI-Powered Facts and Claims checker ML model which verifies the possibility and error percentage of the claim being made by the user.
+<h1 align="center">B-ware : No Lies Told</h1>
 
-### Step 1 - Basic Structure Outline
+<p align="center">
+  <strong>An AI-powered fact-checking platform that verifies economic claims using real-time data, NLI models, and LLM reasoning.</strong>
+</p>
 
-```
-project
-│   README.md   
-└───backend/
-    ├── package.json          
-    ├── node_modules/         
-    ├── .env                  
-    ├── .gitignore            
-    ├── server.js             
-    ├── config/
-    │   └── db.js             ← database connection setup
-    ├── routes/
-    │   └── (empty for now)   ← API route files will go here
-    ├── controllers/
-    │   └── (empty for now)   ← business logic will go here
-    └── middleware/
-        └── (empty for now)   ← auth checks, error handlers will go here
-|
-|
-└───frontend
-    │   (to be filled)
-└───database
-    │   schema.sql
-└───nlp-service
-    │   soon
-```
-   
+<p align="center">
+  <img src="https://img.shields.io/badge/python-3.10+-blue?logo=python" alt="Python"/>
+  <img src="https://img.shields.io/badge/node.js-18+-green?logo=nodedotjs" alt="Node.js"/>
+  <img src="https://img.shields.io/badge/fastapi-0.115-009688?logo=fastapi" alt="FastAPI"/>
+  <img src="https://img.shields.io/badge/express-5.x-000000?logo=express" alt="Express"/>
+  <img src="https://img.shields.io/badge/mysql-8.0-4479A1?logo=mysql" alt="MySQL"/>
+  <img src="https://img.shields.io/badge/redis-7.x-DC382D?logo=redis" alt="Redis"/>
+  <img src="https://img.shields.io/badge/react-18-61DAFB?logo=react" alt="React"/>
+  <img src="https://img.shields.io/badge/license-MIT-yellow" alt="License"/>
+</p>
 
-### Step 2 - Database Designing
+---
 
-1> We created the base model structure of the MVP product, and decided the main tables to be used.
-2> Those being USERS, CLAIMS, Official_data_cache, Verification_log.
-3> Tried caching some of the basic calculation part to make the retrieval faster.
+## What is B-ware?
 
-### Step 3 - NLP Service
+B-ware is a full-stack fact-checking platform that takes economic claims — like *"India's GDP growth rate was 7.5% in 2024"* — and verifies them against official data sources, news evidence, and AI reasoning.
 
-1> NLP service is a separate microservice — a small, independent app that does only one job: take a raw claim like "India's GDP growth rate was 7.5% in 2024" and extract three things:
-```
-Field	Example	            Goes into
-metric	"GDP growth rate"	claims.extracted_metric
-value	7.50	            claims.extracted_value
-year	2024	            claims.extracted_year 
-```
-2> The NLP layer handles the text analysis. The nodejs backed will send a HTTP POST request to the NLP service though an API we will build.
+It doesn't just tell you **true or false**. It shows you:
+- The **official value** from World Bank data
+- The **percentage error** between the claim and reality
+- **News evidence** from multiple sources (Google Fact Check, NewsAPI)
+- An **AI-generated explanation** of why the claim is accurate, misleading, or false
+- A **danger score** for trending rumours in the news
 
-3> 
-```
-User → Frontend → Backend (Node.js :5000) → NLP Service (Python :5001) → Response flows back
-```
+![Hero Screenshot](docs/images/hero-screenshot.png)
+*Replace with actual screenshot of the Verify page showing a verdict card*
 
-4> Service Structure:
-```
-nlp-service/
-├── requirements.txt        ← Python dependencies
-├── main.py                 ← FastAPI app + endpoint
-├── extractor.py            ← Core regex extraction logic
-├── metrics.py              ← Dictionary of known metrics (for normalization)
-└── tests/
-    └── test_extractor.py   ← Test cases to verify extraction works
-```
+---
 
-5> main.py says "when someone POSTs to /extract, call this function" (like routes)
-```
-One POST endpoint: POST /extract — accepts { "text": "India's GDP..." }, returns { "metric": "...", "value": ..., "year": ..., "confidence": ... }.
-```
-6> extractor.py does the actual work (like controllers)
-7> metrics.py is a knowledge base — a dictionary of metrics we recognize
-```
-Metrics to be included for validation (for MVP) :
-GDP growth rate — Most cited economic metric
-Inflation rate — CPI-based inflation
-Unemployment rate — Jobless rate
-Fiscal deficit — Government spending vs revenue gap
-Literacy rate — Education metric
-Population — Demographic claims
-Per capita income — Income metrics
-Poverty rate — Below poverty line percentage
-Foreign exchange reserves / Forex reserves
-Trade deficit / Current account deficit
-```
-8> A test Folder with a test_extractor file to test the rgression caused by slight chang ein the Regex pattern we are trying to verify.
+## Table of Contents
 
-```
-"GDP growth rate was 7.5% in 2024" — standard
-"inflation hit 6.2% this year" — no explicit year (needs handling)
-"Unemployment was at 4.1 percent in 2023" — "percent" spelled out
-"India spent ₹50 lakh crore on defense in 2025" — Indian currency format
-```
+- [Features](#features)
+- [Architecture](#architecture)
+- [The RAV Engine](#the-rav-engine)
+- [Tech Stack](#tech-stack)
+- [Project Structure](#project-structure)
+- [Getting Started](#getting-started)
+- [API Reference](#api-reference)
+- [Screenshots](#screenshots)
+- [Supported Metrics](#supported-metrics)
+- [Data Sources](#data-sources)
+- [Contributing](#contributing)
+- [License](#license)
 
-9> Sources/Citations used for Claims verification:
-```
-#	Source	What Data	API / URL	Format
-1	World Bank Open Data	GDP, inflation, unemployment, poverty, literacy — for ALL countries	https://api.worldbank.org/v2/country/IND/indicator/NY.GDP.MKTP.KD.ZG?format=json&date=2020:2025	REST JSON
-2	RBI (Reserve Bank of India)	Forex reserves, CPI inflation, monetary data	https://data.rbi.org.in/ (DBIE portal)	CSV/Excel download
-3	data.gov.in	India-specific: literacy, population, fiscal data	https://data.gov.in/search (API key required — free)	REST JSON
-4	IMF Data API	GDP, fiscal deficit, trade deficit, current account	https://www.imf.org/external/datamapper/api/v1/	REST JSON
-5	FRED (Federal Reserve)	Global economic indicators (backup source)	https://api.stlouisfed.org/fred/series/observations?series_id=...&api_key=YOUR_KEY	REST JSON
+---
+
+## Features
+
+### Core Verification
+- **Single Claim Verification** — paste any economic claim and get an instant verdict
+- **Paragraph Analysis** — submit a full paragraph; B-ware splits it into sentences, scores each for claim probability, and extracts verifiable claims automatically
+- **Batch Processing** — verify up to 50 claims in a single API call
+- **Three Verification Depths** — Quick (Tier 1), Full (adaptive), Deep (all 3 tiers)
+
+### RAV Engine (Retrieval-Augmented Verification)
+- **Tier 1 — Numeric Check** — compares claimed values against World Bank official data in real time
+- **Tier 2 — NLI Evidence Check** — fetches news snippets and runs an NLI model (BART-MNLI) to detect entailment or contradiction
+- **Tier 3 — LLM Reasoning** — sends everything to Gemini 1.5 Flash for nuanced, multi-source reasoning
+
+### Trending Rumours Feed
+- Monitors news outlets and fact-check databases every 30 minutes
+- Ranks stories by a **danger score** (0–100) based on verdict severity, confidence, recency, and spread
+- Public-facing page showing the most dangerous misinformation right now
+
+### Dashboard & Analytics
+- Personal verification history with search and filters
+- Verdict distribution charts (pie, bar, timeline, scatter)
+- Source credibility leaderboard — which outlets spread the most misinformation
+
+### Security & Performance
+- JWT authentication with Redis-backed logout (token blacklisting)
+- Redis caching for claim deduplication (24h TTL) and trending feed (5min TTL)
+- Rate limiting (100 req/15min per IP with Redis store)
+
+---
+
+## Architecture
 
 ```
-
-10> Main World bank Indicator Codes:
-```
-Your Metric	World Bank Indicator Code	API URL
-GDP growth rate	NY.GDP.MKTP.KD.ZG	/country/IND/indicator/NY.GDP.MKTP.KD.ZG
-Inflation rate	FP.CPI.TOTL.ZG	/country/IND/indicator/FP.CPI.TOTL.ZG
-Unemployment rate	SL.UEM.TOTL.ZS	/country/IND/indicator/SL.UEM.TOTL.ZS
-Fiscal deficit	GC.BAL.CASH.GD.ZS	/country/IND/indicator/GC.BAL.CASH.GD.ZS
-Literacy rate	SE.ADT.LITR.ZS	/country/IND/indicator/SE.ADT.LITR.ZS
-Population	SP.POP.TOTL	/country/IND/indicator/SP.POP.TOTL
-Per capita income	NY.GDP.PCAP.CD	/country/IND/indicator/NY.GDP.PCAP.CD
-Poverty rate	SI.POV.NAHC	/country/IND/indicator/SI.POV.NAHC
-Foreign exchange reserves	FI.RES.TOTL.CD	/country/IND/indicator/FI.RES.TOTL.CD
-Current account deficit	BN.CAB.XOKA.GD.ZS	/country/IND/indicator/BN.CAB.XOKA.GD.ZS
-```
-
-11> Data Flow Architecture:
-```
-                    ┌────────────────────┐
-  On Startup /      │  World Bank API    │
-  Scheduled Job ──→ │  data.gov.in API   │ ──→ Fetch latest data       |                    |
-                    │  RBI/IMF           │
-                    └────────┬───────────┘
-                             │
-                             ▼
-                    ┌────────────────────┐
-                    │ official_data_cache│  INSERT/UPDATE
-                    │ metric_name, year, │  actual values
-                    │ value, source      │
-                    └────────┬───────────┘
-                             │
-      User submits claim     │
-            │                │
-            ▼                ▼
-    ┌──────────────┐  ┌──────────────────┐
-    │ NLP Service  │  │ Comparison Logic |
-    │ extracts:    │──│ official - claim |
-    │ metric, value│  │ = difference     |
-    │ year         │  │ = % error        |
-    └──────────────┘  │ = verdict        │
-                      └──────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│                    USER'S BROWSER                        │
+│              React App — localhost:3000                   │
+└───────────────────────┬──────────────────────────────────┘
+                        │ HTTP + JWT
+                        ▼
+┌──────────────────────────────────────────────────────────┐
+│             NODE.JS BACKEND — localhost:5000              │
+│                                                          │
+│  Express.js │ JWT Auth │ Rate Limit │ Redis Cache        │
+│                                                          │
+│  /api/auth/*       — register, login, logout             │
+│  /api/claims/*     — verify, quick, deep, history        │
+│  /api/trending/*   — rumour feed, sources, refresh       │
+└──────┬──────────────────┬─────────────────┬──────────────┘
+       │                  │                 │
+       ▼                  ▼                 ▼
+┌────────────┐    ┌────────────┐    ┌──────────────────┐
+│ MySQL 8.0  │    │ Redis 7.x  │    │ NLP Service      │
+│ :3306      │    │ :6379      │    │ (Python) :5001   │
+│            │    │            │    │                  │
+│ users      │    │ claim cache│    │ 11 endpoints     │
+│ claims     │    │ trending   │    │ RAV 3-tier engine│
+│ verdicts   │    │ rate limit │    │ BART-MNLI model  │
+│ trending   │    │ JWT block  │    │ Gemini 1.5 Flash │
+└────────────┘    └────────────┘    └──────────────────┘
 ```
 
-12> Full Integration Architecture (AIM) :
+![Architecture Diagram](docs/images/architecture-diagram.png)
+*Replace with actual architecture diagram*
+
+---
+
+## The RAV Engine
+
+**RAV = Retrieval-Augmented Verification**
+
+Instead of training a model to memorize facts, RAV **retrieves evidence at query time** and uses pre-trained reasoning models to compare claims against that evidence.
+
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│                          USER'S BROWSER                              │
-│  Frontend (React/Next.js) — localhost:3000                           │
-│                                                                      │
-│  1. User types: "India's GDP growth was 7.5% in 2024"               │
-│  2. Clicks "Verify" → POST /api/claims to backend                   │
-└───────────────────────────────┬──────────────────────────────────────┘
-                                │ HTTP
-                                ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│  Backend (Node.js/Express) — localhost:5000                          │
-│                                                                      │
-│  3. Auth middleware: verify JWT token                                 │
-│  4. POST /api/claims handler:                                        │
-│     a. Save claim to DB (status: 'pending')                          │
-│     b. Call NLP service → POST http://localhost:5001/extract          │
-│     c. Receive {metric, value, year} from NLP                        │
-│     d. UPDATE claims SET extracted_metric, extracted_value, year      │
-│     e. Query official_data_cache for (metric, year)                  │
-│     f. Calculate difference, percentage_error, verdict               │
-│     g. INSERT into verification_log                                  │
-│     h. UPDATE claims SET credibility_score, status='verified'        │
-│     i. Return full result to frontend                                │
-└───────────────┬──────────────────────────────────────────────────────┘
-                │ HTTP                        │ SQL
-                ▼                             ▼
-┌───────────────────────┐     ┌──────────────────────────────┐
-│ NLP Service (Python)  │     │ MySQL Database               │
-│ FastAPI — port 5001   │     │ localhost:3306               │
-│                       │     │                              │
-│ POST /extract         │     │ Tables:                      │
-│ → Returns metric,     │     │   users                      │
-│   value, year,        │     │   claims                     │
-│   confidence          │     │   official_data_cache        │
-│                       │     │   verification_log           │
-└───────────────────────┘     └──────────────────────────────┘
+Claim: "India's GDP growth rate was 7.5% in 2024"
+
+┌─────────────────────────────────────────────────────────────────┐
+│ TIER 1 — Numeric Check (< 500ms)                               │
+│ World Bank API → official value: 6.49%                          │
+│ % error: 15.48% → MISLEADING (between 5-20%)                   │
+│                                                                 │
+│ Error is in the ambiguous 5-20% zone → escalate to Tier 2       │
+├─────────────────────────────────────────────────────────────────┤
+│ TIER 2 — NLI Evidence Check (500ms - 2s)                        │
+│ Fetch 3-5 news snippets from NewsAPI + Google Fact Check        │
+│ Run BART-MNLI: claim vs each snippet → entail/contradict/neutral│
+│ Aggregated NLI verdict: contradiction (confidence: 0.72)        │
+│                                                                 │
+│ Confidence ≥ 0.6 → return merged Tier 1 + Tier 2 result         │
+├─────────────────────────────────────────────────────────────────┤
+│ TIER 3 — LLM Reasoning (1-3s) [only if Tier 2 is uncertain]    │
+│ Gemini 1.5 Flash receives: claim + numeric data + evidence      │
+│ Returns JSON: { verdict, confidence, explanation, sources_used } │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-13> Two-Tier System:
+### Verdict Rules
+
+| % Error | Verdict | Color |
+|---------|---------|-------|
+| < 5% | **Accurate** | 🟢 Green |
+| 5% – 20% | **Misleading** | 🟠 Orange |
+| ≥ 20% | **False** | 🔴 Red |
+| No data | **Unverifiable** | ⚪ Gray |
+
+![Verdict Card](docs/images/verdict-card.png)
+*Replace with screenshot of a verdict card showing claimed vs official values*
+
+---
+
+## Tech Stack
+
+| Layer | Technology | Purpose |
+|-------|-----------|---------|
+| **Frontend** | React 18, React Router v6, TailwindCSS, Recharts | SPA with responsive UI and data visualizations |
+| **Backend** | Node.js 18+, Express 5, JWT, bcryptjs | REST API gateway, auth, business logic |
+| **NLP Service** | Python 3.10+, FastAPI, Pydantic v2 | AI/ML microservice for extraction & verification |
+| **NLI Model** | HuggingFace `facebook/bart-large-mnli` | Natural Language Inference (entail/contradict) |
+| **LLM** | Google Gemini 1.5 Flash | Multi-source reasoning and explanation generation |
+| **Database** | MySQL 8.0 | Persistent storage for users, claims, verdicts |
+| **Cache** | Redis 7.x (ioredis) | Claim dedup, rate limiting, trending cache, JWT blacklist |
+| **Data APIs** | World Bank, NewsAPI, Google Fact Check | Official data + live news evidence |
+
+---
+
+## Project Structure
+
 ```
-User claim → Regex (fast, cheap) → Cache hit? 
-                                     │
-                          ┌──────────┴──────────┐
-                          │ YES                  │ NO
-                          ▼                      ▼
-                   Return cached result    ML Model (slower, smarter)
-                                          Train on datasets
-                                          Return prediction
-                                          Cache the result for next time
+full_stack/
+├── README.md                          ← you are here
+├── todo.txt                           ← backend + frontend build guide
+├── NLP_todo.txt                       ← remaining NLP improvements
+│
+├── backend/                           ← Node.js Express API
+│   ├── package.json
+│   ├── server.js                      ← Express entry point (:5000)
+│   ├── .env                           ← DB, Redis, JWT secrets
+│   ├── config/
+│   │   ├── db.js                      ← MySQL connection pool
+│   │   └── redis.js                   ← ioredis client
+│   ├── middleware/
+│   │   └── auth.js                    ← JWT verification + Redis blacklist
+│   ├── controllers/
+│   │   ├── authController.js          ← register, login, logout
+│   │   ├── claimController.js         ← verify, history, stats
+│   │   └── trendingController.js      ← trending feed, danger scores
+│   ├── routes/
+│   │   ├── authRoutes.js
+│   │   ├── claimRoutes.js
+│   │   └── trendingRoutes.js
+│   ├── jobs/
+│   │   └── trendingJob.js             ← cron: refresh trending every 30min
+│   └── seeders/
+│       └── worldBankSeeder.js         ← populate official_data_cache
+│
+├── nlp-service/                       ← Python FastAPI AI service ✅ COMPLETE
+│   ├── main.py                        ← 11 FastAPI endpoints (:5001)
+│   ├── extractor.py                   ← regex extraction (metric/value/year)
+│   ├── metrics.py                     ← 10 supported economic metrics
+│   ├── claim_detector.py              ← sentence splitting + scoring
+│   ├── swagger_ui.py                  ← custom dark Swagger theme
+│   ├── requirements.txt
+│   ├── .env                           ← API keys (NewsAPI, Gemini, etc.)
+│   ├── verifier/                      ← RAV Engine package
+│   │   ├── __init__.py
+│   │   ├── tier1_numeric.py           ← World Bank numeric check
+│   │   ├── evidence_fetcher.py        ← Google Fact Check + NewsAPI
+│   │   ├── tier2_nli.py               ← BART-MNLI NLI pipeline
+│   │   ├── tier3_llm.py               ← Gemini 1.5 Flash reasoning
+│   │   └── verdict_router.py          ← 3-tier orchestrator
+│   └── tests/
+│       └── test_extractor.py          ← 24 test cases
+│
+├── frontend/                          ← React app (to be built)
+│
+└── database/
+    └── schema.sql                     ← MySQL table definitions
 ```
 
-ML model becomes primary extractor
+---
 
-Regex becomes the fast cache (your original idea)
+## Getting Started
 
-If regex confidence ≥ 0.9 → skip ML, return immediately
+### Prerequisites
 
-If regex confidence < 0.9 → call ML model for better extraction
+- **Node.js** 18+ and npm
+- **Python** 3.10+ with pip
+- **MySQL** 8.0+
+- **Redis** 7.x (Docker recommended: `docker run -d -p 6379:6379 redis`)
 
-14> New /analyze end point to analyze a whole paragraph provided by the user, and send it to the batch end point for the verification of the probable claims hidden inside the input.
-```
-User sends a paragraph
-        ↓
-[NEW] claim_detector.py splits into sentences
-        ↓
-[NEW] Each sentence gets a claim_probability score (0.0 → 1.0)
-        ↓
-Sentences above threshold → passed to extract_all()
-Sentences below threshold → returned as-is with no extraction
-        ↓
-Full structured response with every sentence, its score, 
-and extraction result (if it was verified)
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/your-username/bware.git
+cd bware
 ```
 
-15> New /batch end point to handle multiple claims at once.
+### 2. Set up the database
+
+```bash
+mysql -u root -p < database/schema.sql
 ```
-POST /batch
-  │
-  ├─ FastAPI reads JSON body → validates against BatchRequest
-  │    └─ checks: is "claims" present? is it a list? 1–50 items?
-  │    └─ if invalid → auto 422 response, your code never runs
-  │
-  ├─ batch_extract(request) is called
-  │    └─ request.claims = ["claim1", "claim2", ...]
-  │
-  ├─ loops over each claim → calls extract_all()
-  │    └─ each result is a dict matching ExtractionResponse shape
-  │
-  └─ returns {"results": [...], "total": 4}
-       └─ FastAPI validates this against BatchResponse
-       └─ serializes to JSON and sends back
+
+### 3. Start the NLP service
+
+```bash
+cd nlp-service
+python -m venv venv        # or use existing venv
+venv\Scripts\activate      # Windows
+pip install -r requirements.txt
+python main.py
+# → http://localhost:5001/docs
 ```
+
+![Swagger UI](docs/images/swagger-ui.png)
+*Replace with screenshot of the dark-themed Swagger UI showing all 11 endpoints*
+
+### 4. Start the backend
+
+```bash
+cd backend
+npm install
+npm install ioredis express-rate-limit rate-limit-redis axios node-cron
+cp .env.example .env       # edit with your MySQL/Redis credentials
+npm run dev
+# → http://localhost:5000/api/health
+```
+
+### 5. Start the frontend
+
+```bash
+cd frontend
+npm install
+npm start
+# → http://localhost:3000
+```
+
+### 6. Seed official data (optional)
+
+```bash
+cd backend
+node seeders/worldBankSeeder.js
+```
+
+---
+
+## API Reference
+
+### NLP Service (port 5001) — Internal
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/health` | Health check |
+| `GET` | `/metrics` | List 10 supported metrics |
+| `POST` | `/extract` | Extract metric/value/year from a single claim |
+| `POST` | `/batch` | Batch extraction (up to 50 claims) |
+| `POST` | `/analyze` | Paragraph → split + score + extract |
+| `POST` | `/verify/quick` | Tier 1 numeric verification only |
+| `POST` | `/verify` | Full 3-tier RAV pipeline |
+| `POST` | `/verify/deep` | Force all 3 tiers |
+
+### Backend API (port 5000) — Public
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `POST` | `/api/auth/register` | No | Create account |
+| `POST` | `/api/auth/login` | No | Get JWT token |
+| `POST` | `/api/auth/logout` | Yes | Blacklist token |
+| `POST` | `/api/claims/verify` | Yes | Full verification |
+| `POST` | `/api/claims/quick` | Yes | Quick (Tier 1) verification |
+| `POST` | `/api/claims/deep` | Yes | Deep (all tiers) verification |
+| `GET` | `/api/claims` | Yes | User's claim history |
+| `GET` | `/api/claims/stats` | Yes | Verdict distribution stats |
+| `GET` | `/api/claims/:id` | Yes | Full claim detail |
+| `GET` | `/api/trending` | No | Trending rumours feed |
+| `GET` | `/api/trending/sources` | No | Source credibility board |
+| `GET` | `/api/trending/:id` | No | Trending story detail |
+| `POST` | `/api/trending/refresh` | Admin | Force trending refresh |
+
+### Example Request
+
+```bash
+curl -X POST http://localhost:5000/api/claims/verify \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -d '{"text": "India'\''s GDP growth rate was 7.5% in 2024"}'
+```
+
+### Example Response
+
+```json
+{
+  "original_text": "India's GDP growth rate was 7.5% in 2024",
+  "tier_used": "tier2",
+  "verdict": "misleading",
+  "confidence": 0.71,
+  "extracted_metric": "GDP growth rate",
+  "extracted_value": 7.5,
+  "extracted_year": 2024,
+  "official_value": 6.49,
+  "percentage_error": 15.48,
+  "official_source": "World Bank",
+  "evidence": [
+    {
+      "source": "Reuters",
+      "snippet": "India's GDP grew 6.5% in fiscal 2024...",
+      "nli_verdict": "contradiction",
+      "nli_score": 0.84
+    }
+  ],
+  "explanation": "Claimed 7.5%, official World Bank value is 6.49% (error: 15.48%). Classified as misleading.",
+  "tiers_run": ["tier1", "tier2"]
+}
+```
+
+---
+
+## Screenshots
+
+> **Note:** Replace these placeholder images with actual screenshots of the running application.
+
+| Feature | Screenshot |
+|---------|-----------|
+| **Swagger API Docs** | ![Swagger](docs/images/swagger-ui.png) |
+| **Claim Verification** | ![Verify](docs/images/verify-page.png) |
+| **Verdict Card** | ![Verdict](docs/images/verdict-card.png) |
+| **Paragraph Analysis** | ![Analyze](docs/images/analyze-page.png) |
+| **Dashboard** | ![Dashboard](docs/images/dashboard-page.png) |
+| **Charts & Analytics** | ![Charts](docs/images/charts-page.png) |
+| **Trending Rumours** | ![Trending](docs/images/trending-page.png) |
+| **Source Leaderboard** | ![Sources](docs/images/sources-page.png) |
+| **Login Page** | ![Login](docs/images/login-page.png) |
+| **Mobile View** | ![Mobile](docs/images/mobile-view.png) |
+
+---
+
+## Supported Metrics
+
+B-ware recognizes **10 economic indicators** mapped to World Bank API codes:
+
+| Metric | World Bank Code | Example Claim |
+|--------|----------------|---------------|
+| GDP growth rate | `NY.GDP.MKTP.KD.ZG` | "GDP grew at 7.5% in 2024" |
+| Inflation rate | `FP.CPI.TOTL.ZG` | "CPI inflation fell to 4.8%" |
+| Unemployment rate | `SL.UEM.TOTL.ZS` | "Unemployment hit 8.1% in 2023" |
+| Fiscal deficit | `GC.BAL.CASH.GD.ZS` | "Fiscal deficit was 5.9% of GDP" |
+| Literacy rate | `SE.ADT.LITR.ZS` | "India's literacy rate is 77.7%" |
+| Population | `SP.POP.TOTL` | "India's population crossed 1.4 billion" |
+| Per capita income | `NY.GDP.PCAP.CD` | "Per capita income reached $2,500" |
+| Poverty rate | `SI.POV.NAHC` | "Poverty rate dropped to 11.4%" |
+| Foreign exchange reserves | `FI.RES.TOTL.CD` | "Forex reserves crossed $650 billion" |
+| Current account deficit | `BN.CAB.XOKA.GD.ZS` | "CAD widened to 2.4% of GDP" |
+
+---
+
+## Data Sources
+
+| Source | Type | Tier | Cost |
+|--------|------|------|------|
+| [World Bank Open Data](https://data.worldbank.org) | Official statistics (196 countries) | Tier 1 | Free |
+| [NewsAPI](https://newsapi.org) | News articles (80k+ sources) | Tier 2 | Free (100/day) |
+| [Google Fact Check Tools](https://developers.google.com/fact-check/tools/api) | Fact-checks (Snopes, AFP, AltNews) | Tier 2 | Free |
+| [Gemini 1.5 Flash](https://aistudio.google.com) | LLM reasoning | Tier 3 | Free (15 req/min) |
+| [IMF Data API](https://www.imf.org/external/datamapper/api/v1/) | GDP, fiscal, trade data | Backup | Free |
+| [RBI DBIE](https://data.rbi.org.in/) | India-specific financial data | Backup | Free |
+
+---
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/my-feature`
+3. Commit changes: `git commit -m "Add my feature"`
+4. Push to branch: `git push origin feature/my-feature`
+5. Open a Pull Request
+
+See [todo.txt](todo.txt) for the complete build guide with step-by-step instructions.
+
+---
+
+## License
+
+This project is licensed under the MIT License.
+
+---
+
+<p align="center">
+  <strong>B-ware: Because facts should be verified, not assumed.</strong>
+</p>
