@@ -41,6 +41,7 @@ It doesn't just tell you **true or false**. It shows you:
 - [Features](#features)
 - [Architecture](#architecture)
 - [The RAV Engine](#the-rav-engine)
+- [Tiered Verification Architecture — Deep Dive](#tiered-verification-architecture--deep-dive)
 - [Tech Stack](#tech-stack)
 - [Project Structure](#project-structure)
 - [Getting Started](#getting-started)
@@ -160,6 +161,133 @@ Claim: "India's GDP growth rate was 7.5% in 2024"
 
 ---
 
+---
+
+## Tiered Verification Architecture — Deep Dive
+
+This section explains the internal routing logic, data flow, and confidence scoring
+that powers the RAV engine. Understanding this is essential for anyone working on
+the backend integration or frontend evidence display.
+
+### Routing Flow
+
+```
+User submits claim
+        │
+        ▼
+┌─────────────────────────────────┐
+│ Layer 0: EXTRACTION             │
+│ extractor.py → metric/value/year│
+│ + extraction confidence (0-1)   │
+└────────────┬────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────┐
+│ TIER 1: Numeric Check           │
+│ World Bank API → official value │
+│ Calculate % error               │
+│                                 │
+│ Decisive? (error <5% or ≥20%   │
+│   AND extraction conf ≥ 0.8)   │
+│   YES → return tier1 result ────┼──→ DONE
+│   NO  ↓                        │
+└────────────┬────────────────────┘
+             │ ambiguous or low confidence
+             ▼
+┌─────────────────────────────────┐
+│ TIER 2: Evidence + NLI          │
+│ Fetch snippets (Fact Check +    │
+│   NewsAPI) → run BART-MNLI on   │
+│   each snippet → majority vote  │
+│                                 │
+│ Confident? (NLI conf ≥ 0.6)    │
+│   YES → merge T1+T2, return ───┼──→ DONE
+│   NO  ↓                        │
+└────────────┬────────────────────┘
+             │ low NLI confidence
+             ▼
+┌─────────────────────────────────┐
+│ TIER 3: LLM Reasoning          │
+│ Build prompt with: claim +     │
+│   numeric data + evidence       │
+│ Send to Gemini 1.5 Flash       │
+│ Parse JSON response             │
+│ Return tier3 result ────────────┼──→ DONE
+└─────────────────────────────────┘
+```
+
+> **`/verify/deep` (force_tier3=True):** Bypasses all early returns and always runs
+> through all three tiers, returning the Tier 3 result regardless of earlier confidence.
+
+### Confidence Scoring
+
+Each tier produces a confidence score differently:
+
+| Tier | Confidence Formula | Range |
+|------|-------------------|-------|
+| **Tier 1** | `extraction_confidence × (1 - percentage_error/100)` | 0.0 – 1.0 |
+| **Tier 2** | Average NLI score of the majority-vote label | 0.0 – 1.0 |
+| **Tier 3** | Self-reported by the LLM (clamped to 0.0–1.0) | 0.0 – 1.0 |
+| **Merged (T1+T2)** | `(tier1_confidence + tier2_confidence) / 2` | 0.0 – 1.0 |
+
+### Escalation Thresholds
+
+These constants live in `verdict_router.py` and control when the router escalates:
+
+| Constant | Value | Meaning |
+|----------|-------|---------|
+| `TIER1_STRONG_THRESHOLD` | 0.8 | Extraction confidence must be ≥ this for Tier 1 fast-path |
+| `TIER1_ERROR_CLEAR_LOW` | 5.0% | Error below this → definitely accurate |
+| `TIER1_ERROR_CLEAR_HIGH` | 20.0% | Error above this → definitely false |
+| `TIER2_CONFIDENCE_MIN` | 0.6 | NLI confidence below this → escalate to Tier 3 |
+
+### Database Persistence
+
+The verification pipeline produces intermediate data at each tier. These are stored in
+dedicated database tables so the frontend can display evidence cards and explanations:
+
+| Python Dataclass | Database Table | Relationship |
+|-----------------|----------------|-------------|
+| `VerificationResult` | `verification_log` (with tier_used, confidence, explanation) | 1 per claim |
+| `EvidenceSnippet` | `evidence_snippets` | Many per claim |
+| `NliResult` | `nli_results` | 1 per evidence snippet |
+| `Tier3Result` | `tier3_results` | 0 or 1 per claim |
+
+```
+claims (1) ──→ verification_log (1)
+           ──→ evidence_snippets (many) ──→ nli_results (1 each)
+           ──→ tier3_results (0 or 1)
+```
+
+### NLI Model Details
+
+| Property | Value |
+|----------|-------|
+| **Model** | `facebook/bart-large-mnli` |
+| **Task** | Zero-shot classification |
+| **Size** | ~1.6 GB (downloaded once, cached locally) |
+| **Device** | CPU (no GPU required) |
+| **Labels** | entailment, contradiction, neutral |
+| **Upgrade path** | `cross-encoder/nli-deberta-v3-large` (higher accuracy) |
+
+### Testing the RAV Engine
+
+```bash
+cd nlp-service
+
+# Run all tests (extraction + verification tiers)
+python -m pytest tests/ -v
+
+# Run only tier-specific tests
+python -m pytest tests/test_tier2_nli.py -v
+python -m pytest tests/test_tier3_llm.py -v
+python -m pytest tests/test_verdict_router.py -v
+```
+
+All Tier 2/3 tests use **mocked API calls** — no API keys, internet, or GPU required.
+The BART model is mocked in tests so they run in under 1 second.
+
+
 ## Tech Stack
 
 | Layer | Technology | Purpose |
@@ -221,7 +349,10 @@ full_stack/
 │   │   ├── tier3_llm.py               ← Gemini 1.5 Flash reasoning
 │   │   └── verdict_router.py          ← 3-tier orchestrator
 │   └── tests/
-│       └── test_extractor.py          ← 24 test cases
+│       ├── test_extractor.py          ← 24 test cases (extraction)
+│       ├── test_tier2_nli.py          ← Tier 2 NLI tests (mocked)
+│       ├── test_tier3_llm.py          ← Tier 3 LLM tests (mocked)
+│       └── test_verdict_router.py     ← Router logic tests (mocked)
 │
 ├── frontend/                          ← React app (to be built)
 │
