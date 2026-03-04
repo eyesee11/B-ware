@@ -48,7 +48,10 @@ def split_into_sentences(text):
     sentences = []
     for part in parts:
         restored = part.replace("<DOT>", ".")   # put the dots back
-        cleaned = restored.strip()
+        # Strip leading/trailing whitespace AND trailing sentence-ending punctuation.
+        # We split ON the punctuation, so e.g. "GDP grew 7.5% in 2024!" becomes
+        # "GDP grew 7.5% in 2024" — cleaner text for downstream extraction.
+        cleaned = restored.strip().rstrip(".!?")
         if cleaned:                              # skip empty strings
             sentences.append(cleaned)
 
@@ -119,8 +122,9 @@ def score_claim_probability(sentence):
         score += 0.05
 
     # ---- PENALTY 1: Too short (−0.20) ----
-    # A 3-word sentence can't be a verifiable claim
-    if word_count < 4:
+    # A 2-word sentence can't be a verifiable claim; 3-word ones like
+    # "Inflation hit 6.2%" are valid short economic statements.
+    if word_count < 3:
         score -= 0.20
 
     # ---- PENALTY 2: Too long (−0.10) ----

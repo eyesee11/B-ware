@@ -15,16 +15,32 @@ To run:
 
 Swagger docs: http://localhost:5001/docs
 """
+import asyncio
+import logging
+import os
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, JSONResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 from pydantic import BaseModel, Field
-from extractor import extract_all
-from metrics import get_all_metric_names
+
 from claim_detector import split_into_sentences, score_claim_probability
+from extractor import extract_all, preprocess_claim
+from metrics import get_all_metric_names
 from swagger_ui import get_swagger_html, tags_metadata
 from verifier.tier1_numeric import tier1_numeric_check
 from verifier.verdict_router import route_verification, VerificationResult
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(name)s  %(levelname)s  %(message)s",
+)
+logger = logging.getLogger("bware.nlp")
+limiter = Limiter(key_func=get_remote_address)
 # =============================================================================
 # PYDANTIC MODELS — Request/Response contracts
 # =============================================================================
@@ -46,6 +62,7 @@ class ExtractionResponse(BaseModel):
     metric: str | None = None
     value: float | None = None
     year: int | None = None
+    value_type: str | None = None   # N-20: "percentage" | "absolute"
     confidence: float
 
     model_config = {
@@ -62,17 +79,25 @@ class ExtractionResponse(BaseModel):
 
 
 class HealthResponse(BaseModel):
-    """Health check response."""
-    status: str
+    """Health check response — includes component readiness."""
+    status: str           # "healthy" | "degraded"
     service: str
     version: str
+    bart_model: str       # "loaded" | "not_loaded"
+    gemini_key: str       # "configured" | "missing"
+    newsapi_key: str      # "configured" | "missing"
+    factcheck_key: str    # "configured" | "missing"
 
     model_config = {
         "json_schema_extra": {
             "example": {
                 "status": "healthy",
                 "service": "B-ware NLP Service",
-                "version": "1.0.0"
+                "version": "1.0.0",
+                "bart_model": "loaded",
+                "gemini_key": "configured",
+                "newsapi_key": "missing",
+                "factcheck_key": "configured"
             }
         }
     }
@@ -376,8 +401,34 @@ curl -X POST http://localhost:5001/analyze \\
     docs_url=None,   # we override /docs below with custom settings
 )
 
+# ---------------------------------------------------------------------------
+# CORS — allow React (:3000), Node backend (:5000), VS Code Live Server (:5500)
+# ---------------------------------------------------------------------------
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:5000",
+        "http://localhost:5500",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ---------------------------------------------------------------------------
+# RATE LIMITING (defense-in-depth; Node backend also rate-limits)
+# ---------------------------------------------------------------------------
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
+@app.exception_handler(Exception)
+async def generic_exception_handler(request, exc):
+    """Catch-all exception handler to prevent 500 errors from crashing the server."""
+    return  JSONResponse(status_code=500, 
+                        content={"error": "Internal server error", 
+                        "detail": str(exc)})
 
 # ENDPOINTS
 
@@ -397,11 +448,33 @@ async def custom_swagger_ui():
     response_description="Service status and version info"
 )
 def health_check():
-    """Check if the NLP service is running and responsive."""
+    """
+    Check if the NLP service is running and all components are ready.
+    Returns component-level status so the Node backend can make informed decisions.
+
+    - `bart_model: loaded`  — BART-MNLI is warm in memory (first /verify/deep call triggers load)
+    - `*_key: configured`   — the env var is set (non-empty); does not validate the key
+    - `status: degraded`    — at least one key is missing (Tier 2/3 may fail)
+    """
+    from verifier.tier2_nli import _load_pipeline  # local import to avoid circular
+
+    bart_status = "loaded" if _load_pipeline.cache_info().currsize > 0 else "not_loaded"
+    gemini_key  = "configured" if os.getenv("GEMINI_API_KEY")            else "missing"
+    newsapi_key = "configured" if os.getenv("NEWS_API_KEY")              else "missing"
+    factcheck   = "configured" if os.getenv("GOOGLE_FACT_CHECK_API_KEY") else "missing"
+
+    # Degrade if any external API key is missing (Tier 2/3 will silently skip them)
+    keys_ok = all(k == "configured" for k in [gemini_key, newsapi_key, factcheck])
+    overall = "healthy" if keys_ok else "degraded"
+
     return {
-        "status": "healthy",
+        "status": overall,
         "service": "B-ware NLP Service",
-        "version": "1.0.0"
+        "version": "1.0.0",
+        "bart_model": bart_status,
+        "gemini_key": gemini_key,
+        "newsapi_key": newsapi_key,
+        "factcheck_key": factcheck,
     }
 
 
@@ -589,6 +662,7 @@ async def verify_quick(request: ClaimRequest):
         metric=extraction["metric"],
         claimed_value=extraction["value"],
         year=extraction["year"],
+        country=extraction.get("country", "IND") or "IND",   # N-19
     )
 
     # Step 3: If extraction failed entirely, return unverifiable immediately
@@ -681,7 +755,27 @@ async def verify_full(request: ClaimRequest):
     Returns the `tier_used` field so you know which layer produced the verdict.
     Use `POST /verify/deep` to force all three tiers regardless of early exit conditions.
     """
-    result: VerificationResult = await route_verification(request.text, force_tier3=False)
+    clean_text = preprocess_claim(request.text)
+    try:
+        result: VerificationResult = await asyncio.wait_for(
+            route_verification(clean_text, force_tier3=False),
+            timeout=30.0,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("verify_full timed out for text: %.80s", clean_text)
+        return FullVerificationResult(
+            original_text=clean_text,
+            tier_used="tier1",
+            verdict="unverifiable",
+            confidence=0.0,
+            extracted_metric=None,
+            extracted_value=None,
+            extracted_year=None,
+            extraction_confidence=0.0,
+            evidence=[],
+            explanation="Verification timed out after 30 seconds.",
+            tiers_run=[],
+        )
     return FullVerificationResult(
         original_text=result.original_text,
         tier_used=result.tier_used,
@@ -719,7 +813,8 @@ async def verify_full(request: ClaimRequest):
     summary="Deep verification — forces all three tiers",
     response_description="Verdict from all three tiers: numeric + evidence + LLM reasoning"
 )
-async def verify_deep(request: ClaimRequest):
+@limiter.limit("10/minute")
+async def verify_deep(request: Request, body: ClaimRequest):
     """
     **Deepest verification path.** Forces the pipeline through all three tiers
     regardless of how confident earlier tiers are.
@@ -730,9 +825,29 @@ async def verify_deep(request: ClaimRequest):
     - You want `tiers_run: ["tier1", "tier2", "tier3"]` guaranteed in the response
 
     **Slower** than `/verify` — expect ~3–8 seconds latency (network + LLM).
-    Subject to Gemini free-tier rate limits (15 req/min).
+    Subject to Gemini free-tier rate limits (15 req/min). **Rate limited to 10 req/min per IP.**
     """
-    result: VerificationResult = await route_verification(request.text, force_tier3=True)
+    clean_text = preprocess_claim(body.text)
+    try:
+        result: VerificationResult = await asyncio.wait_for(
+            route_verification(clean_text, force_tier3=True),
+            timeout=30.0,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("verify_deep timed out for text: %.80s", clean_text)
+        return FullVerificationResult(
+            original_text=clean_text,
+            tier_used="tier1",
+            verdict="unverifiable",
+            confidence=0.0,
+            extracted_metric=None,
+            extracted_value=None,
+            extracted_year=None,
+            extraction_confidence=0.0,
+            evidence=[],
+            explanation="Verification timed out after 30 seconds.",
+            tiers_run=[],
+        )
     return FullVerificationResult(
         original_text=result.original_text,
         tier_used=result.tier_used,
@@ -766,8 +881,8 @@ async def verify_deep(request: ClaimRequest):
 # Run the server directly: python main.py
 if __name__ == "__main__":
     import uvicorn
-    print("Starting B-ware NLP Service...")
-    print("API docs available at: http://localhost:5001/docs")
+    logger.info("Starting B-ware NLP Service...")
+    logger.info("API docs available at: http://localhost:5001/docs")
     uvicorn.run(
         "main:app",
         host="0.0.0.0",

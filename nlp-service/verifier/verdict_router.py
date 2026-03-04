@@ -20,6 +20,8 @@ This is used by POST /verify/deep.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import time
 from dataclasses import dataclass, field
 
 from extractor import extract_all
@@ -33,6 +35,47 @@ TIER1_STRONG_THRESHOLD = 0.8   # extraction confidence above which Tier 1 alone 
 TIER1_ERROR_CLEAR_LOW  = 5.0   # % error below this → definitely accurate
 TIER1_ERROR_CLEAR_HIGH = 20.0  # % error above this → definitely false
 TIER2_CONFIDENCE_MIN   = 0.6   # Tier 2 confidence below this → escalate to Tier 3
+
+
+# =============================================================================
+# L1 RESULT CACHE — avoids re-running the full pipeline for duplicate claims
+# =============================================================================
+
+class _ResultCache:
+    """
+    In-process TTL cache for VerificationResult objects.
+    Keyed on MD5(text) + force_tier3 — same claim + same depth = same result.
+    TTL: 1 hour. Saves World Bank + NewsAPI + Gemini quota on repeated claims.
+
+    The Node backend also caches in Redis (L2 cache). This is the L1 cache
+    inside the NLP service itself — prevents any external API calls on hits.
+    """
+    def __init__(self, ttl_seconds: int = 3600):
+        self._ttl = ttl_seconds
+        self._store: dict[str, tuple[float, object]] = {}
+
+    def _key(self, text: str, force_tier3: bool) -> str:
+        return hashlib.md5(text.encode()).hexdigest() + f":{force_tier3}"
+
+    def get(self, text: str, force_tier3: bool):
+        entry = self._store.get(self._key(text, force_tier3))
+        if entry is None:
+            return None
+        stored_at, result = entry
+        if time.monotonic() - stored_at > self._ttl:
+            del self._store[self._key(text, force_tier3)]
+            return None
+        return result
+
+    def set(self, text: str, force_tier3: bool, result) -> None:
+        self._store[self._key(text, force_tier3)] = (time.monotonic(), result)
+
+    def clear(self) -> None:
+        """Evict all cached entries. Used in tests to prevent cross-test pollution."""
+        self._store.clear()
+
+
+_result_cache = _ResultCache()
 
 
 # =============================================================================
@@ -128,12 +171,20 @@ async def route_verification(
     tiers_run: list[str] = []
 
     # ──────────────────────────────────────────────────────────────────────
+    # L1 CACHE CHECK — return immediately for duplicate claims
+    # ──────────────────────────────────────────────────────────────────────
+    cached = _result_cache.get(text, force_tier3)
+    if cached is not None:
+        return cached
+
+    # ──────────────────────────────────────────────────────────────────────
     # LAYER 1: Extract metric / value / year
     # ──────────────────────────────────────────────────────────────────────
     extraction = extract_all(text)
     metric    = extraction["metric"]
     value     = extraction["value"]
     year      = extraction["year"]
+    country   = extraction.get("country", "IND") or "IND"   # N-19
     ext_conf  = extraction["confidence"]
 
     base = dict(
@@ -151,6 +202,7 @@ async def route_verification(
         metric=metric,
         claimed_value=value,
         year=year,
+        country=country,   # N-19: use detected country instead of always IND
     )
     tiers_run.append("tier1")
 
@@ -181,7 +233,7 @@ async def route_verification(
             f"Percentage error: {t1.percentage_error:.2f}%. "
             f"Verdict: {tier1_verdict}."
         )
-        return VerificationResult(
+        _t1_result = VerificationResult(
             **base,
             tier_used="tier1",
             verdict=tier1_verdict,
@@ -194,6 +246,8 @@ async def route_verification(
             explanation=explanation,
             tiers_run=tiers_run,
         )
+        _result_cache.set(text, force_tier3, _t1_result)
+        return _t1_result
 
     # ──────────────────────────────────────────────────────────────────────
     # TIER 2: Evidence fetch + NLI
@@ -241,7 +295,7 @@ async def route_verification(
         explanation = _build_merged_explanation(
             metric, value, year, t1, tier1_verdict, t2, tier2_verdict
         )
-        return VerificationResult(
+        _t2_result = VerificationResult(
             **base,
             tier_used="tier2",
             verdict=merged_verdict,
@@ -255,6 +309,8 @@ async def route_verification(
             explanation=explanation,
             tiers_run=tiers_run,
         )
+        _result_cache.set(text, force_tier3, _t2_result)
+        return _t2_result
 
     # ──────────────────────────────────────────────────────────────────────
     # TIER 3: Gemini LLM
@@ -281,7 +337,7 @@ async def route_verification(
     )
     tiers_run.append("tier3")
 
-    return VerificationResult(
+    _t3_result = VerificationResult(
         **base,
         tier_used="tier3",
         verdict=t3.verdict,
@@ -295,6 +351,8 @@ async def route_verification(
         explanation=t3.explanation,
         tiers_run=tiers_run,
     )
+    _result_cache.set(text, force_tier3, _t3_result)
+    return _t3_result
 
 
 # =============================================================================

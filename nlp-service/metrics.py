@@ -5,7 +5,18 @@ Example:
     Output: {"metric": "GDP growth rate", "confidence": 0.9}
 """
 
-import re 
+import re
+
+# N-20: Metric type sets — used by extractor.py for value_type determination
+PERCENTAGE_METRICS = {
+    "GDP growth rate", "inflation rate", "unemployment rate",
+    "fiscal deficit", "literacy rate", "poverty rate",
+    "current account deficit",
+}
+ABSOLUTE_METRICS = {
+    "population", "per capita income", "foreign exchange reserves",
+}
+
 METRIC_PATTERNS = [
     {
         "name": "GDP growth rate",
@@ -139,29 +150,39 @@ METRIC_PATTERNS = [
 ]
 
 
-# find_metric(text) — The Matching Function 
+# =============================================================================
+# N-7: PRE-COMPILED PATTERNS — built once at module load, reused on every call
+# =============================================================================
+_COMPILED_METRIC_PATTERNS = [
+    {
+        "name": m["name"],
+        "strong": [re.compile(p) for p in m["strong"]],
+        "weak":   [re.compile(p) for p in m["weak"]],
+    }
+    for m in METRIC_PATTERNS
+]
+
+
+# find_metric(text) — The Matching Function
 # WHAT IT DOES: Takes a raw claim string and figures out which metric it's about.
 
 def find_metric(text):
 
     text_lower = text.lower()
-    # User might type "GDP", "gdp", "Gdp", or "gDp".
-    # Instead of writing patterns for every capitalization,
-    # we convert everything to lowercase ONCE and write patterns in lowercase.
 
     # FIRST PASS — check all strong patterns (high confidence)
-    for metric in METRIC_PATTERNS:
+    for metric in _COMPILED_METRIC_PATTERNS:
         for pattern in metric["strong"]:
-            if re.search(pattern, text_lower):
+            if pattern.search(text_lower):
                 return {
                     "metric": metric["name"],
                     "confidence": 0.9
                 }
 
     # SECOND PASS — check all weak patterns (lower confidence)
-    for metric in METRIC_PATTERNS:
+    for metric in _COMPILED_METRIC_PATTERNS:
         for pattern in metric["weak"]:
-            if re.search(pattern, text_lower):
+            if pattern.search(text_lower):
                 return {
                     "metric": metric["name"],
                     "confidence": 0.6

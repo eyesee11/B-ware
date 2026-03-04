@@ -1,20 +1,75 @@
 ================================================================================
 B-ware — NLP SERVICE: REMAINING TASKS
-Last updated: March 3, 2026
+Last updated: March 4, 2026
 ================================================================================
 
 STATUS SUMMARY:
-  ✅ RAV Engine (3-tier verification)    — COMPLETE, all tiers tested
-  ✅ Extraction pipeline (regex)         — COMPLETE, 24 tests passing
-  ✅ Claim detector (paragraph splitting)— COMPLETE
-  ✅ 11 FastAPI endpoints                — COMPLETE
-  ⬜ Items below are pending cleanup / improvements
+  ✅ RAV Engine (3-tier verification)      — COMPLETE
+  ✅ Extraction pipeline (regex)           — COMPLETE
+  ✅ Claim detector (paragraph splitting)  — COMPLETE
+  ✅ 11 FastAPI endpoints                  — COMPLETE
+  ✅ verifier/__init__.py public API       — COMPLETE
+  ✅ Tier 2/3 test suites                  — COMPLETE (all mocked, no API/GPU needed)
+  ✅ PRIORITY 1 — CORS, error handling,
+       schema.sql, README, .env.example    — ALL 5 ITEMS COMPLETE
+  ✅ PRIORITY 2 — Input sanitisation,
+       timeout guard, health check,
+       structured logging, result cache,
+       rate limiting                       — ALL 6 ITEMS COMPLETE
+  ✅ PRIORITY 3 — Fiscal year, word-form
+       numbers, pre-compiled regexes,
+       confidence formula, multi-country,
+       value_type disambiguation           — ALL 6 ITEMS COMPLETE
+  ✅ TEST SUITE                            — 76/76 PASSING (0 failures)
+  ⬜ PRIORITY 4 items below are pending
 
 ================================================================================
-PENDING — DO BEFORE BACKEND WIRING
+RECENTLY COMPLETED (March 4, 2026 — Priority 2 & 3 implementation)
 ================================================================================
 
-  [ ] N-3  CORS MIDDLEWARE
+  [x] Fixed __init__.py: removed _run_nli_sync (private), fixed relative imports
+      (was: `from evidence_fetcher` → now: `from .evidence_fetcher`)
+  [x] Added test_tier2_nli.py    — label mapping, empty input, aggregation tests
+  [x] Added test_tier3_llm.py    — prompt building, JSON parsing, graceful degradation
+  [x] Added test_verdict_router.py — verdict rules, routing fast-path, escalation, force_tier3
+  [x] Schema plan finalized: 3 new tables (evidence_snippets, nli_results, tier3_results)
+      + ALTER verification_log with tier_used, tiers_run, confidence, explanation columns
+
+  Priority 2 (Robustness):
+  [x] N-13: preprocess_claim() — HTML strip, zero-width chars, NFC normalize, whitespace collapse
+  [x] N-14: asyncio.wait_for(route_verification(...), timeout=30.0) on /verify + /verify/deep
+  [x] N-15: /health now checks BART model cache warmth + all 3 env-var API keys
+  [x] N-16: Replaced all print() with logging.getLogger("bware.nlp") across main.py + tier2_nli.py
+  [x] N-17: _ResultCache (TTL=1hr, MD5-keyed) added to verdict_router.py — L1 in-process cache
+  [x] N-18: slowapi rate limiting — @limiter.limit("10/minute") on /verify/deep
+
+  Priority 3 (Extraction quality):
+  [x] N-1:  extract_year() — FY2024-25→2025, 2023-24→2024 fiscal year support
+  [x] N-2:  extract_value() — word-form multipliers: lakh crore, lakh, crore,
+              trillion, billion, million, thousand + ₹ prefix handling
+  [x] N-7:  All regexes pre-compiled at module load in extractor.py + metrics.py
+  [x] N-9:  Confidence formula: metric×0.5 + value×0.3 + year×0.2 (of metric_confidence)
+  [x] N-19: extract_country() returns ISO3; 14 country patterns; World Bank ISO3→ISO2 map
+              for 11 countries; country passed through to tier1_numeric_check()
+  [x] N-20: value_type field in extract_all() output: "percentage" | "absolute"
+              driven by PERCENTAGE_METRICS / ABSOLUTE_METRICS sets in metrics.py
+
+  Test suite fixes (all brought to 76/76 passing):
+  [x] tests/conftest.py — autouse fixture clears _result_cache before/after every test
+      (prevents L1 cache cross-test pollution for shared input texts)
+  [x] tier2_nli.py — length check now inspects snippet.snippet only, not fallback title
+      (empty snippet "" no longer passes 10-char filter via its auto-generated title)
+  [x] claim_detector.py — split_into_sentences() strips trailing punctuation from
+      sentences; "too short" penalty threshold lowered from <4 words to <3 words
+  [x] tests/test_extractor.py — added missing claim_detector imports;
+      confidence assertions corrected to match N-9 formula for no-year sentences (0.48)
+  [x] main.py verify_deep — renamed http_request→request so slowapi decorator
+      validates correctly at import time (prevents test collection failure)
+
+================================================================================
+PRIORITY 1 — DO BEFORE BACKEND WIRING
+
+  [✔️] N-3  CORS MIDDLEWARE
            File: nlp-service/main.py
            Why:  React (:3000) and Node (:5000) need to call this service.
                  Without CORS headers, browsers block cross-origin requests.
@@ -29,39 +84,174 @@ PENDING — DO BEFORE BACKEND WIRING
              )
            Place right after `app = FastAPI(...)` block.
 
-  [ ] N-4  GLOBAL ERROR HANDLING
+  [✔️] N-4  GLOBAL ERROR HANDLING
            File: nlp-service/main.py
            Why:  HTTPException is imported but never used. Unhandled errors
                  return raw 500s with stack traces exposed.
            How:
-             a) Wrap every endpoint body in try/except:
-                try:
-                    result = extract_all(request.text)
-                    return result
-                except Exception as e:
-                    raise HTTPException(status_code=500, detail=str(e))
-             b) Add a global exception handler:
+             a) Add a global exception handler:
                 @app.exception_handler(Exception)
                 async def global_exception_handler(request, exc):
                     return JSONResponse(
                         status_code=500,
                         content={"error": "Internal server error", "detail": str(exc)}
                     )
+             b) OR wrap individual endpoints in try/except raising HTTPException.
+
+  [x] N-10 APPLY SCHEMA UPDATES TO schema.sql
+           File: database/schema.sql
+           Why:  The 3 new tables and ALTER discussed on March 3 need to be
+                 committed to the file so backend teammates can run them.
+           Tables to add:
+             - evidence_snippets  (claim_id FK, source, title, snippet, url, evidence_type)
+             - nli_results        (claim_id FK, evidence_id FK, nli_label, nli_score, model_used)
+             - tier3_results      (claim_id FK, verdict, confidence, explanation, sources_used JSON)
+           ALTER verification_log:
+             - ADD tier_used ENUM('tier1','tier2','tier3')
+             - ADD tiers_run JSON
+             - ADD confidence DECIMAL(5,4)
+             - ADD explanation TEXT
+             - MODIFY verdict to include 'unverifiable'
+
+  [x] N-11 UPDATE README WITH TIER ARCHITECTURE DEEP DIVE
+           File: README.md
+           Why:  README documents RAV engine at a high level but doesn't explain
+                 routing flow, escalation thresholds, confidence scoring formulas,
+                 or the dataclass-to-table mapping.
+           Where: Insert after "The RAV Engine" section, before "Tech Stack".
+
+  [x] N-12 CREATE .env.example FOR NLP SERVICE
+           File: nlp-service/.env.example
+           Why:  Teammates need to know which env vars to set. Currently undocumented.
+           Contents:
+             GEMINI_API_KEY=your_gemini_api_key_here
+             NEWS_API_KEY=your_newsapi_key_here
+             GOOGLE_FACT_CHECK_API_KEY=your_google_factcheck_key_here
 
 ================================================================================
-PENDING — NICE-TO-HAVE IMPROVEMENTS (do after backend is working)
+PRIORITY 2 — ROBUSTNESS & PRODUCTION READINESS
 ================================================================================
 
-  [ ] N-1  FISCAL YEAR SUPPORT in extract_year()
+  [x] N-13 INPUT SANITIZATION / CLAIM PREPROCESSING
+           File: nlp-service/extractor.py (new function: preprocess_claim)
+           Why:  User-submitted text can contain HTML tags, excessive whitespace,
+                 zero-width Unicode characters, or emoji that break regex patterns.
+           What to do:
+             - Strip HTML tags (regex or html.parser)
+             - Normalize whitespace (collapse multiple spaces, strip \t \r)
+             - Remove zero-width chars (\u200b, \u200c, \ufeff)
+             - Normalize Unicode (NFC normalization via unicodedata.normalize)
+             - Call this function at the TOP of extract_all() and in main.py endpoints
+
+  [x] N-14 PIPELINE TIMEOUT GUARD
+           File: nlp-service/verifier/verdict_router.py
+           Why:  A full Tier 1→2→3 pipeline can take 15-25 seconds if all APIs
+                 are slow. There's no global timeout — the user waits forever.
+           How:
+             Use asyncio.wait_for() around route_verification with a 30s cap:
+               result = await asyncio.wait_for(
+                   route_verification(text, force_tier3),
+                   timeout=30.0
+               )
+             On timeout, return verdict="unverifiable" with explanation
+             "Verification timed out after 30 seconds."
+
+  [x] N-15 ENHANCED HEALTH CHECK
+           File: nlp-service/main.py (/health endpoint)
+           Why:  Current /health just returns {"status": "healthy"} always.
+                 Backend needs to know if the service is ACTUALLY ready.
+           What to check:
+             - Is BART model loaded? (check if _load_pipeline cache is warm)
+             - Are API keys configured? (GEMINI_API_KEY, NEWS_API_KEY set?)
+             - Return component statuses:
+               {"status": "healthy", "bart_model": "loaded",
+                "gemini_key": "configured", "newsapi_key": "missing"}
+
+  [x] N-16 STRUCTURED LOGGING (replace print statements)
+           Files: All files in nlp-service/
+           Why:  print() is fine for development, but in production:
+                 - No log levels (can't filter INFO vs ERROR)
+                 - No timestamps
+                 - Can't route to files or monitoring tools
+           How:
+             import logging
+             logger = logging.getLogger("bware.nlp")
+             logger.info("Model loaded")  instead of  print("[Tier2] Model loaded")
+           Places with print() that need replacing:
+             - tier2_nli.py: _load_pipeline() has 2 print statements
+             - main.py: __main__ block has 2 print statements
+
+  [x] N-17 RESULT CACHING AT VERIFICATION LEVEL
+           File: nlp-service/verifier/verdict_router.py
+           Why:  Same claim verified twice = duplicate World Bank + NewsAPI +
+                 Gemini calls. evidence_fetcher has its own cache, but full
+                 verification results aren't cached.
+           How:
+             Add a _TtlCache (like in evidence_fetcher) keyed on (text_hash, force_tier3).
+             TTL: 1 hour. Saves API quota and reduces response time.
+           Note: Backend will also cache in Redis. This is a local L1 cache
+             to avoid hitting the NLP service's own external APIs redundantly.
+
+  [x] N-18 RATE LIMITING ON NLP SERVICE
+           File: nlp-service/main.py
+           Why:  /verify/deep triggers Gemini (rate-limited to 15 req/min).
+                 Without rate limiting, a burst of requests can exhaust the quota.
+           How:
+             pip install slowapi
+             from slowapi import Limiter
+             from slowapi.util import get_remote_address
+             limiter = Limiter(key_func=get_remote_address)
+             @app.post("/verify/deep")
+             @limiter.limit("10/minute")
+             async def verify_deep(request, response): ...
+           Note: Backend also rate-limits, so this is defense-in-depth.
+
+================================================================================
+PRIORITY 3 — EXTRACTION QUALITY IMPROVEMENTS
+================================================================================
+
+  [x] N-1  FISCAL YEAR SUPPORT in extract_year()
            File: nlp-service/extractor.py
            e.g. "FY2024-25" → 2025, "2023-24" → 2024
            Regex: FY\s?\d{4}(-\d{2})? → resolve to ending year
 
-  [ ] N-2  WORD-FORM NUMBER SUPPORT in extract_value()
+  [x] N-2  WORD-FORM NUMBER SUPPORT in extract_value()
            File: nlp-service/extractor.py
            e.g. "1.4 billion" → 1400000000.0, "₹2 lakh crore" → 2e12
            Multiplier map: lakh=1e5, crore=1e7, lakh crore=1e12,
                            million=1e6, billion=1e9, trillion=1e12
+
+  [x] N-7  PRE-COMPILE REGEXES using re.compile()
+           Files: nlp-service/metrics.py, nlp-service/extractor.py
+           Currently recompiled on every call — compile once at module load
+
+  [x] N-9  IMPROVE CONFIDENCE SCORING FORMULA
+           File: nlp-service/extractor.py
+           Current: (fields_found / 3) * metric_confidence — too coarse
+           Better: metric 50% + value 30% + year 20% weighting
+
+  [x] N-19 MULTI-COUNTRY SUPPORT in tier1_numeric.py
+           File: nlp-service/verifier/tier1_numeric.py
+           Why:  Currently hardcoded to DEFAULT_COUNTRY = "IND".
+                 Claims like "US GDP grew 3.1%" would still compare against India.
+           How:
+             - Add country extraction to extractor.py (regex for country names)
+             - Map country names → ISO 3166 alpha-3 codes
+             - Pass country to tier1_numeric_check()
+           Scope: Start with top 10 countries (US, UK, China, Japan, Germany, etc.)
+
+  [x] N-20 PERCENTAGE vs ABSOLUTE VALUE DISAMBIGUATION
+           File: nlp-service/extractor.py
+           Why:  "Population reached 1.4 billion" → value = 1.4, but that's
+                 not a percentage. "GDP grew 7.5%" → value = 7.5, and that IS
+                 a percentage. Different metrics need different comparison logic.
+           How:  Add a `value_type` field to extraction output: "percentage" | "absolute"
+                 Determine based on: presence of % symbol, metric type
+                 (population is always absolute, growth rates are always %)
+
+================================================================================
+PRIORITY 4 — NICE-TO-HAVE / POST-MVP
+================================================================================
 
   [ ] N-5  IMPROVE /analyze RESPONSE SHAPE
            File: nlp-service/main.py
@@ -76,17 +266,50 @@ PENDING — NICE-TO-HAVE IMPROVEMENTS (do after backend is working)
            6 metrics have zero tests: literacy, population, per capita income,
            poverty rate, forex reserves, current account deficit
 
-  [ ] N-7  PRE-COMPILE REGEXES using re.compile()
-           Files: nlp-service/metrics.py, nlp-service/extractor.py
-           Currently recompiled on every call — compile once at module load
+  [ ] N-21 DOCKERFILE FOR NLP SERVICE
+           File: nlp-service/Dockerfile
+           Why:  For deployment, Docker ensures consistent environment.
+                 Teammates don't need Python installed to run the service.
+           Template:
+             FROM python:3.10-slim
+             WORKDIR /app
+             COPY requirements.txt .
+             RUN pip install --no-cache-dir -r requirements.txt
+             COPY . .
+             # Pre-download BART model during build (avoids first-request delay)
+             RUN python -c "from transformers import pipeline; \
+                 pipeline('zero-shot-classification', model='facebook/bart-large-mnli')"
+             EXPOSE 5001
+             CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "5001"]
+           Note: Image will be ~4GB due to PyTorch + BART model. Consider
+             multi-stage builds and torch CPU-only (--extra-index-url) to reduce.
 
-  [ ] N-9  IMPROVE CONFIDENCE SCORING FORMULA
-           File: nlp-service/extractor.py
-           Current: (fields_found / 3) * metric_confidence — too coarse
-           Better: metric 50% + value 30% + year 20% weighting
+  [ ] N-22 OPENAPI RESPONSE EXAMPLES FOR ALL ENDPOINTS
+           File: nlp-service/main.py (Pydantic model_config)
+           Why:  /verify and /verify/deep Pydantic models have no examples.
+                 Swagger docs show empty response schemas — harder for backend
+                 teammates to understand the shape without running the service.
+
+  [ ] N-23 EVIDENCE SOURCE DIVERSITY SCORING
+           File: nlp-service/verifier/verdict_router.py
+           Why:  If all 5 evidence snippets come from the same source (e.g.,
+                 all from Reuters), that's less reliable than 5 different sources.
+           How:  Count unique sources in evidence_items. If < 3 unique sources,
+                 reduce Tier 2 confidence by 10-20%. This helps prevent echo-
+                 chamber effects where one outlet's error gets amplified.
+
+  [ ] N-24 CLAIM LANGUAGE DETECTION
+           File: nlp-service/claim_detector.py (new function)
+           Why:  Users might paste Hindi/mixed-language claims. Currently,
+                 regex extraction fails silently on non-English text.
+           How:
+             pip install langdetect  (or use fasttext-langdetect, lighter)
+             If detected language != "en", return early with a clear error:
+               "Currently only English claims are supported."
+           Future: Add Hindi extraction patterns for Devanagari numerals.
 
 ================================================================================
-PENDING — HUGGINGFACE MODEL NOTES
+HUGGINGFACE MODEL NOTES
 ================================================================================
 
   MODEL IN USE: facebook/bart-large-mnli (~1.6 GB)
@@ -110,5 +333,3 @@ PENDING — HUGGINGFACE MODEL NOTES
         LIAR   — 12,800 labeled political claims
         FEVER  — 185,000 claims vs Wikipedia
         ClaimBuster — US presidential debate claims
-
-================================================================================

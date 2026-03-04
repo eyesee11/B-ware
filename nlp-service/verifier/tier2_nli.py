@@ -17,10 +17,13 @@ for higher accuracy when needed.
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass
 from functools import lru_cache
 
 from verifier.evidence_fetcher import EvidenceSnippet
+
+logger = logging.getLogger("bware.nlp.tier2")
 
 
 MODEL_NAME = "facebook/bart-large-mnli"
@@ -55,13 +58,13 @@ def _load_pipeline():
     Downloads the model from HuggingFace on first run (~1.6GB).
     """
     from transformers import pipeline
-    print(f"[Tier2 NLI] Loading model: {MODEL_NAME}  (first call only)...")
+    logger.info("Loading NLI model: %s  (first call only...)", MODEL_NAME)
     nli_pipeline = pipeline(
         "zero-shot-classification",
         model=MODEL_NAME,
         device=-1,  # -1 = CPU; change to 0 for GPU
     )
-    print("[Tier2 NLI] Model loaded and ready.")
+    logger.info("NLI model loaded and ready.")
     return nli_pipeline
 
 
@@ -114,7 +117,10 @@ async def run_nli(
 
     for snippet in snippets:
         text_to_score = snippet.snippet or snippet.title
-        if not text_to_score or len(text_to_score.strip()) < 10:
+        # Check the *snippet* field length specifically — not the fallback title.
+        # An empty snippet ("") would otherwise fall through to the title
+        # (e.g. "Article about ...") and produce garbage NLI scores.
+        if not text_to_score or len((snippet.snippet or "").strip()) < 10:
             continue
 
         # Run blocking model call in thread pool

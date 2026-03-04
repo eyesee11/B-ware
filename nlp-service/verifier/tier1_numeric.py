@@ -20,6 +20,13 @@ import httpx
 WORLD_BANK_API_BASE = "https://api.worldbank.org/v2"
 DEFAULT_COUNTRY = "IND"
 
+# N-19: ISO 3166 alpha-3 → alpha-2 mapping for World Bank URL generation
+_ISO3_TO_ISO2: dict[str, str] = {
+    "IND": "IN", "USA": "US", "GBR": "GB", "CHN": "CN",
+    "JPN": "JP", "DEU": "DE", "FRA": "FR", "BRA": "BR",
+    "CAN": "CA", "AUS": "AU", "KOR": "KR",
+}
+
 # Matches the 10 supported metric names in nlp-service/metrics.py
 METRIC_TO_WORLD_BANK_INDICATOR: dict[str, str] = {
     "GDP growth rate": "NY.GDP.MKTP.KD.ZG",
@@ -72,8 +79,8 @@ _value_cache = _TtlCache(ttl=timedelta(hours=6))
 def _world_bank_source_url(indicator_code: str, country: str = DEFAULT_COUNTRY) -> str:
     # Human-friendly indicator landing page
     # Example: https://data.worldbank.org/indicator/NY.GDP.MKTP.KD.ZG?locations=IN
-    country_code = "IN" if country.upper() == "IND" else country.upper()
-    return f"https://data.worldbank.org/indicator/{indicator_code}?locations={country_code}"
+    iso2 = _ISO3_TO_ISO2.get(country.upper(), country[:2].upper())
+    return f"https://data.worldbank.org/indicator/{indicator_code}?locations={iso2}"
 
 
 def _percentage_error(claimed: float, official: float) -> float:
