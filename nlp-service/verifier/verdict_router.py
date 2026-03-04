@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 import time
 from dataclasses import dataclass, field
 
@@ -29,6 +30,8 @@ from verifier.tier1_numeric import tier1_numeric_check, WorldBankNumericCheck
 from verifier.evidence_fetcher import fetch_evidence, EvidenceSnippet
 from verifier.tier2_nli import run_nli, Tier2Result
 from verifier.tier3_llm import tier3_llm_check, EvidenceSummary, Tier3Result
+
+logger = logging.getLogger("bware.nlp.router")
 
 # Confidence thresholds — tunable without changing logic
 TIER1_STRONG_THRESHOLD = 0.8   # extraction confidence above which Tier 1 alone is trusted
@@ -279,19 +282,32 @@ async def route_verification(
             nli_score=nli_score,
         ))
 
+    # N-23: Source diversity guard — echo-chamber prevention
+    # If all snippets come from only 1–2 sources it is less reliable than diverse coverage.
+    # Penalise Tier 2 confidence by 15 % when fewer than 3 unique sources are present.
+    unique_sources = len({e.source for e in evidence_items if e.source})
+    if unique_sources < 3 and t2.confidence > 0.0:
+        t2_adj_conf = round(t2.confidence * 0.85, 2)
+        logger.info(
+            "Source diversity low (%d unique source(s)); adjusting Tier 2 confidence %.2f → %.2f",
+            unique_sources, t2.confidence, t2_adj_conf,
+        )
+    else:
+        t2_adj_conf = t2.confidence
+
     # Merge Tier 1 numeric + Tier 2 NLI into a combined verdict
     tier2_verdict = _nli_to_verdict(t2.verdict)
 
     # If Tier 1 had an official value, it overrides "unverifiable" from Tier 2
     if tier1_verdict != "unverifiable" and t1.official_value is not None:
         merged_verdict = tier1_verdict   # numeric data is more authoritative
-        merged_conf = round((tier1_conf + t2.confidence) / 2, 2)
+        merged_conf = round((tier1_conf + t2_adj_conf) / 2, 2)
     else:
         merged_verdict = tier2_verdict
-        merged_conf = round(t2.confidence, 2)
+        merged_conf = round(t2_adj_conf, 2)
 
     # Tier 2 is confident enough — return without LLM
-    if t2.confidence >= TIER2_CONFIDENCE_MIN and not force_tier3:
+    if t2_adj_conf >= TIER2_CONFIDENCE_MIN and not force_tier3:
         explanation = _build_merged_explanation(
             metric, value, year, t1, tier1_verdict, t2, tier2_verdict
         )

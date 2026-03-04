@@ -192,23 +192,27 @@ class TestAnalyzeEndpoint:
         from main import analyze_text, ClaimRequest
 
         request = ClaimRequest(text="India's GDP growth was 7.5% in 2024! Inflation hit 6.2%? Unemployment rose to 8%.")
-        results = analyze_text(request)
+        response = analyze_text(request)
 
-        assert len(results) == 3
-        assert results[0]["metric"] == "GDP growth rate"
-        assert results[0]["value"] == 7.5
-        assert results[0]["year"] == 2024
-        assert results[0]["confidence"] > 0.8
+        # N-5: ParagraphResponse shape
+        assert response.total_sentences == 3
+        assert response.verified_count == 3
+        assert len(response.results) == 3
 
-        assert results[1]["metric"] == "inflation rate"
-        assert results[1]["value"] == 6.2
-        assert results[1]["year"] is None
-        assert results[1]["confidence"] > 0.4  # weak metric match, no year → 0.6 * 0.8 = 0.48
+        assert response.results[0].extraction.metric == "GDP growth rate"
+        assert response.results[0].extraction.value == 7.5
+        assert response.results[0].extraction.year == 2024
+        assert response.results[0].extraction.confidence > 0.8
 
-        assert results[2]["metric"] == "unemployment rate"
-        assert results[2]["value"] == 8.0
-        assert results[2]["year"] is None
-        assert results[2]["confidence"] > 0.4  # weak metric match, no year → 0.6 * 0.8 = 0.48
+        assert response.results[1].extraction.metric == "inflation rate"
+        assert response.results[1].extraction.value == 6.2
+        assert response.results[1].extraction.year is None
+        assert response.results[1].extraction.confidence > 0.4  # weak metric match, no year → 0.6 * 0.8 = 0.48
+
+        assert response.results[2].extraction.metric == "unemployment rate"
+        assert response.results[2].extraction.value == 8.0
+        assert response.results[2].extraction.year is None
+        assert response.results[2].extraction.confidence > 0.4  # weak metric match, no year → 0.6 * 0.8 = 0.48
 
         
 
@@ -263,3 +267,67 @@ class TestExtractAll:
         result = extract_all(text)
         assert result["original_text"] == text
 
+
+# =============================================================================
+# N-6: ALL 10 METRIC COVERAGE TESTS
+# Previously untested: literacy, population, per capita income, poverty,
+# forex reserves, current account deficit
+# =============================================================================
+
+class TestAllTenMetrics:
+    """N-6: Ensure each of the 10 supported metrics can be extracted."""
+
+    def test_literacy_rate(self):
+        result = extract_all("India's literacy rate rose to 77% in 2023")
+        assert result["metric"] == "literacy rate"
+        assert result["value"] == 77.0
+        assert result["year"] == 2023
+
+    def test_population(self):
+        result = extract_all("India's population crossed 1.4 billion in 2024")
+        assert result["metric"] == "population"
+        # 1.4 billion = 1,400,000,000
+        assert result["value"] == 1_400_000_000.0
+        assert result["year"] == 2024
+
+    def test_per_capita_income(self):
+        result = extract_all("India's per capita income reached 2000 dollars in 2023")
+        assert result["metric"] == "per capita income"
+        assert result["value"] == 2000.0
+        assert result["year"] == 2023
+
+    def test_poverty_rate(self):
+        result = extract_all("Poverty rate fell to 20% in 2022")
+        assert result["metric"] == "poverty rate"
+        assert result["value"] == 20.0
+        assert result["year"] == 2022
+
+    def test_forex_reserves(self):
+        result = extract_all("India's foreign exchange reserves touched 650 billion dollars in 2024")
+        assert result["metric"] == "foreign exchange reserves"
+        assert result["value"] == 650_000_000_000.0
+        assert result["year"] == 2024
+
+    def test_current_account_deficit(self):
+        result = extract_all("Current account deficit narrowed to 1.5% of GDP in 2023")
+        assert result["metric"] == "current account deficit"
+        assert result["value"] == 1.5
+        assert result["year"] == 2023
+
+    # --- the four already-covered metrics, re-confirmed here to complete the set ---
+
+    def test_gdp_growth_coverage(self):
+        result = extract_all("GDP growth rate stood at 6.8% in 2024")
+        assert result["metric"] == "GDP growth rate"
+
+    def test_inflation_coverage(self):
+        result = extract_all("Inflation rate rose to 5.1% in 2023")
+        assert result["metric"] == "inflation rate"
+
+    def test_unemployment_coverage(self):
+        result = extract_all("Unemployment rate declined to 7.2% in 2024")
+        assert result["metric"] == "unemployment rate"
+
+    def test_fiscal_deficit_coverage(self):
+        result = extract_all("Fiscal deficit was 3.2% of GDP in 2024")
+        assert result["metric"] == "fiscal deficit"

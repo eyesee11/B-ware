@@ -28,7 +28,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from pydantic import BaseModel, Field
 
-from claim_detector import split_into_sentences, score_claim_probability
+from claim_detector import split_into_sentences, score_claim_probability, detect_claim_language
 from extractor import extract_all, preprocess_claim
 from metrics import get_all_metric_names
 from swagger_ui import get_swagger_html, tags_metadata
@@ -52,8 +52,15 @@ class ClaimRequest(BaseModel):
         min_length=3,
         max_length=2000,
         description="The raw claim text to analyze. Can be a single sentence or a full paragraph.",
-        example="India's GDP growth rate stood at 7.5 percent in 2024"
     )
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "text": "India's GDP growth rate stood at 7.5 percent in 2024"
+            }
+        }
+    }
 
 
 class ExtractionResponse(BaseModel):
@@ -72,6 +79,7 @@ class ExtractionResponse(BaseModel):
                 "metric": "GDP growth rate",
                 "value": 7.5,
                 "year": 2024,
+                "value_type": "percentage",
                 "confidence": 0.9
             }
         }
@@ -130,12 +138,19 @@ class BatchRequest(BaseModel):
         min_length=1,
         max_length=50,
         description="List of individual claim texts to analyze. Maximum 50 claims per request.",
-        example=[
-            "India's GDP growth rate stood at 7.5 percent in 2024",
-            "Retail CPI inflation fell to 4.8% in January 2024",
-            "India's forex reserves crossed $650 billion in 2024"
-        ]
     )
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "claims": [
+                    "India's GDP growth rate stood at 7.5 percent in 2024",
+                    "Retail CPI inflation fell to 4.8% in January 2024",
+                    "India's forex reserves crossed $650 billion in 2024"
+                ]
+            }
+        }
+    }
 
 
 class BatchResponse(BaseModel):
@@ -151,6 +166,74 @@ class BatchResponse(BaseModel):
                     {"original_text": "Retail CPI inflation fell to 4.8% in January 2024", "metric": "inflation rate", "value": 4.8, "year": 2024, "confidence": 0.9}
                 ],
                 "total": 2
+            }
+        }
+    }
+
+
+# =============================================================================
+# N-5 — PARAGRAPH ANALYSIS RESPONSE MODELS
+# =============================================================================
+
+class SentenceAnalysis(BaseModel):
+    """One sentence from the analyzed paragraph, with its claim probability and extraction."""
+    sentence: str
+    claim_probability: float
+    extraction: ExtractionResponse
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "sentence": "India's GDP growth rate was 7.5% in 2024",
+                "claim_probability": 0.95,
+                "extraction": {
+                    "original_text": "India's GDP growth rate was 7.5% in 2024",
+                    "metric": "GDP growth rate",
+                    "value": 7.5,
+                    "year": 2024,
+                    "value_type": "percentage",
+                    "confidence": 0.9
+                }
+            }
+        }
+    }
+
+
+class ParagraphResponse(BaseModel):
+    """
+    Response for POST /analyze.
+
+    Fields:
+      total_sentences       — total sentences found in the paragraph
+      verified_count        — sentences that scored > 0.5 claim probability
+      high_confidence_count — verified claims with extraction confidence ≥ 0.8
+      results               — per-claim sentence, probability and extraction data
+    """
+    total_sentences: int
+    verified_count: int
+    high_confidence_count: int
+    results: list[SentenceAnalysis]
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "total_sentences": 3,
+                "verified_count": 2,
+                "high_confidence_count": 1,
+                "results": [
+                    {
+                        "sentence": "India's GDP growth rate was 7.5% in 2024",
+                        "claim_probability": 0.95,
+                        "extraction": {
+                            "original_text": "India's GDP growth rate was 7.5% in 2024",
+                            "metric": "GDP growth rate",
+                            "value": 7.5,
+                            "year": 2024,
+                            "value_type": "percentage",
+                            "confidence": 0.9
+                        }
+                    }
+                ]
             }
         }
     }
@@ -244,6 +327,19 @@ class VerificationEvidenceItem(BaseModel):
     evidence_type: str
     nli_verdict: str | None = None
     nli_score: float | None = None
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "source": "Reuters",
+                "snippet": "India's GDP growth accelerated to 6.5% in fiscal year 2024.",
+                "url": "https://reuters.com/article/india-gdp",
+                "evidence_type": "news",
+                "nli_verdict": "entailment",
+                "nli_score": 0.82
+            }
+        }
+    }
 
 
 class FullVerificationResult(BaseModel):
@@ -501,6 +597,13 @@ def extract_claim(request: ClaimRequest):
     - `0.6` — weak metric match or one field missing
     - `0.0` — metric not recognised
     """
+    # N-24: Reject non-English input with a clear error
+    lang = detect_claim_language(request.text)
+    if lang != "en":
+        raise HTTPException(
+            status_code=422,
+            detail=f"Only English claims are supported. Detected language: '{lang}'.",
+        )
     result = extract_all(request.text)
     return result
 
@@ -550,10 +653,10 @@ def batch_extract(request: BatchRequest):
 
 @app.post(
     "/analyze",
-    response_model=list[ExtractionResponse],
+    response_model=ParagraphResponse,
     tags=["Paragraph Analysis"],
     summary="Analyze a full paragraph for verifiable claims",
-    response_description="Extraction results for all sentences identified as verifiable claims"
+    response_description="Sentence stats and per-claim extractions for the full paragraph"
 )
 def analyze_text(request: ClaimRequest):
     """
@@ -581,16 +684,37 @@ def analyze_text(request: ClaimRequest):
     Only sentences scoring **above 0.5** are passed to the extractor.
     Commentary, questions, and context sentences are automatically filtered out.
     """
+    # N-24: Reject non-English paragraphs before any processing
+    lang = detect_claim_language(request.text)
+    if lang != "en":
+        raise HTTPException(
+            status_code=422,
+            detail=f"Only English claims are supported. Detected language: '{lang}'.",
+        )
+
     sentences = split_into_sentences(request.text)
-    results = []
+    sentence_results: list[SentenceAnalysis] = []
 
     for sentence in sentences:
         prob = score_claim_probability(sentence)
         if prob > 0.5:
-            result = extract_all(sentence)
-            results.append(result)
+            extraction = extract_all(sentence)
+            sentence_results.append(
+                SentenceAnalysis(
+                    sentence=sentence,
+                    claim_probability=round(prob, 2),
+                    extraction=ExtractionResponse(**extraction),
+                )
+            )
 
-    return results
+    return ParagraphResponse(
+        total_sentences=len(sentences),
+        verified_count=len(sentence_results),
+        high_confidence_count=sum(
+            1 for r in sentence_results if r.extraction.confidence >= 0.8
+        ),
+        results=sentence_results,
+    )
 
 
 @app.get(

@@ -20,8 +20,31 @@ STATUS SUMMARY:
        numbers, pre-compiled regexes,
        confidence formula, multi-country,
        value_type disambiguation           — ALL 6 ITEMS COMPLETE
-  ✅ TEST SUITE                            — 76/76 PASSING (0 failures)
-  ⬜ PRIORITY 4 items below are pending
+  ✅ PRIORITY 4 — /analyze shape, test
+       coverage, Dockerfile, OpenAPI,
+       source diversity, lang detection    — ALL 6 ITEMS COMPLETE
+  ✅ TEST SUITE                            — 86/86 PASSING (0 failures)
+
+================================================================================
+PRIORITY 4 — ALL 6 ITEMS COMPLETE
+================================================================================
+
+  [x] N-5:  /analyze now returns ParagraphResponse with total_sentences,
+              verified_count, high_confidence_count, and per-sentence
+              SentenceAnalysis (sentence + claim_probability + extraction)
+  [x] N-6:  All 10 metrics tested — added coverage for literacy rate,
+              population (word-form × 1e9), per capita income, poverty rate,
+              foreign exchange reserves, current account deficit
+              Test suite: 86/86 passing (+10 tests)
+  [x] N-21: nlp-service/Dockerfile — python:3.10-slim, pre-downloads BART,
+              HEALTHCHECK, CPU-only torch note included
+  [x] N-22: Fixed Pydantic v2 Field(example=…) deprecations in ClaimRequest
+              and BatchRequest; added VerificationEvidenceItem model_config;
+              added value_type to ExtractionResponse example
+  [x] N-23: Source diversity guard — if < 3 unique sources in evidence_items,
+              Tier 2 confidence reduced by 15 %; logged via bware.nlp.router
+  [x] N-24: detect_claim_language() in claim_detector.py using langdetect;
+              /extract and /analyze reject non-English text with HTTP 422
 
 ================================================================================
 RECENTLY COMPLETED (March 4, 2026 — Priority 2 & 3 implementation)
@@ -253,7 +276,7 @@ PRIORITY 3 — EXTRACTION QUALITY IMPROVEMENTS
 PRIORITY 4 — NICE-TO-HAVE / POST-MVP
 ================================================================================
 
-  [ ] N-5  IMPROVE /analyze RESPONSE SHAPE
+  [x] N-5  IMPROVE /analyze RESPONSE SHAPE
            File: nlp-service/main.py
            Currently returns list[ExtractionResponse].
            Should return a ParagraphResponse with:
@@ -261,12 +284,12 @@ PRIORITY 4 — NICE-TO-HAVE / POST-MVP
              - total_sentences count
              - verified_count, high_confidence_count
 
-  [ ] N-6  EXPAND TEST COVERAGE TO ALL 10 METRICS
+  [x] N-6  EXPAND TEST COVERAGE TO ALL 10 METRICS
            File: nlp-service/tests/test_extractor.py
            6 metrics have zero tests: literacy, population, per capita income,
            poverty rate, forex reserves, current account deficit
 
-  [ ] N-21 DOCKERFILE FOR NLP SERVICE
+  [x] N-21 DOCKERFILE FOR NLP SERVICE
            File: nlp-service/Dockerfile
            Why:  For deployment, Docker ensures consistent environment.
                  Teammates don't need Python installed to run the service.
@@ -284,13 +307,13 @@ PRIORITY 4 — NICE-TO-HAVE / POST-MVP
            Note: Image will be ~4GB due to PyTorch + BART model. Consider
              multi-stage builds and torch CPU-only (--extra-index-url) to reduce.
 
-  [ ] N-22 OPENAPI RESPONSE EXAMPLES FOR ALL ENDPOINTS
+  [x] N-22 OPENAPI RESPONSE EXAMPLES FOR ALL ENDPOINTS
            File: nlp-service/main.py (Pydantic model_config)
            Why:  /verify and /verify/deep Pydantic models have no examples.
                  Swagger docs show empty response schemas — harder for backend
                  teammates to understand the shape without running the service.
 
-  [ ] N-23 EVIDENCE SOURCE DIVERSITY SCORING
+  [x] N-23 EVIDENCE SOURCE DIVERSITY SCORING
            File: nlp-service/verifier/verdict_router.py
            Why:  If all 5 evidence snippets come from the same source (e.g.,
                  all from Reuters), that's less reliable than 5 different sources.
@@ -298,7 +321,7 @@ PRIORITY 4 — NICE-TO-HAVE / POST-MVP
                  reduce Tier 2 confidence by 10-20%. This helps prevent echo-
                  chamber effects where one outlet's error gets amplified.
 
-  [ ] N-24 CLAIM LANGUAGE DETECTION
+  [x] N-24 CLAIM LANGUAGE DETECTION
            File: nlp-service/claim_detector.py (new function)
            Why:  Users might paste Hindi/mixed-language claims. Currently,
                  regex extraction fails silently on non-English text.

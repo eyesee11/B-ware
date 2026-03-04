@@ -1,0 +1,32 @@
+# =============================================================================
+# .dockerignore — keeps the Docker build context lean and secrets out of images
+# =============================================================================
+
+# --- Secrets (never go into an image) ---
+.env
+
+# --- Python runtime cache ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# --- Virtual environment (image installs its own) ---
+venv/
+.venv/
+
+# --- Dev / test artefacts ---
+tests/
+*.log
+
+# --- Version control ---
+.git/
+.gitignore
+
+# --- Editor files ---
+.vscode/
+*.swp

@@ -135,3 +135,27 @@ def score_claim_probability(sentence):
     # ---- CLAMP to [0.0, 1.0] ----
     # Scores can't go below 0 or above 1
     return round(max(0.0, min(1.0, score)), 2)
+
+
+# =============================================================================
+# N-24 — LANGUAGE DETECTION
+# =============================================================================
+
+def detect_claim_language(text: str) -> str:
+    """
+    Detect the language of *text* and return an ISO 639-1 code (e.g. 'en', 'hi').
+    Uses the langdetect library under the hood.
+
+    Falls back to 'en' gracefully if:
+      - langdetect is not installed
+      - the text is too short to classify reliably
+      - any other detection error occurs
+
+    The seed is fixed so detection is deterministic across calls.
+    """
+    try:
+        from langdetect import detect, DetectorFactory
+        DetectorFactory.seed = 0   # reproducible across calls
+        return detect(text)
+    except Exception:
+        return "en"  # safe fallback — never crash on detection failure
