@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/bware-logo.png" alt="B-ware Logo" width="200"/>
+  <img src="screenshots/logo.png" alt="B-ware Logo" width="200"/>
 </p>
 
 <h1 align="center">B-ware : No Lies Told</h1>

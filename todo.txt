@@ -1,11 +1,12 @@
 ================================================================================
 B-ware — BACKEND + FRONTEND BUILD GUIDE
 ================================================================================
-Last updated : March 3, 2026
+Last updated : March 5, 2026
 Author       : [your name]
 For          : Backend/Frontend developer joining the project
-Status       : NLP AI service is COMPLETE. This document covers everything
-               remaining: Node.js backend, React frontend, MySQL, Redis.
+Status       : NLP AI service is COMPLETE and DEPLOYED to HuggingFace.
+               This document covers everything remaining:
+               Node.js backend, React frontend, MySQL, Redis.
 ================================================================================
 
 
@@ -30,14 +31,18 @@ TABLE OF CONTENTS
 SECTION 0 — WHAT'S ALREADY BUILT (NLP AI Service)
 ================================================================================
 
-  The Python NLP microservice is COMPLETE. You do NOT need to modify it.
-  It runs on port 5001 and exposes 11 endpoints.
+  The Python NLP microservice is COMPLETE and DEPLOYED. You do NOT need
+  to modify it.
 
-  TO START IT:
+  ✅ DEPLOYED TO HUGGINGFACE:
+       Live URL : https://eyesee11-b-ware.hf.space
+       Swagger  : https://eyesee11-b-ware.hf.space/docs
+
+  LOCAL DEV (optional, for offline testing):
     cd nlp-service
     pip install -r requirements.txt   (first time only)
     python main.py
-    → http://localhost:5001/docs      (Swagger UI — test all endpoints here)
+    → http://localhost:5001/docs
 
   ENDPOINTS YOU'LL CALL FROM THE BACKEND:
   ┌──────────────────────┬──────────────────────────────────────────────────┐
@@ -860,7 +865,77 @@ SECTION 8 — TRENDING RUMOURS FEATURE (full spec)
     RAV engine on every story, and surface the most DANGEROUS / MISLEADING
     stories right now — ranked by harm potential.
 
-  DANGER SCORE FORMULA (0–100):
+  ── ARCHITECTURE FLOW ────────────────────────────────────────────────────
+
+    NewsAPI /everything  ─┐
+                          ├─→  Node.js cron job (every 30 min)
+    Google Fact Check  ───┘         │
+                                    │  POST each headline to HF model:
+                                    │  https://eyesee11-b-ware.hf.space/verify
+                                    ▼
+                            Store verdict in MongoDB/MySQL
+                            trending_stories table
+                                    │
+                                    ▼
+                            GET /api/trending  (Node backend)
+                                    │
+                                    ▼
+                            React /trending page
+                            Card grid: headline + verdict badge + danger bar
+
+  ── DATA SOURCES (EXACT API CALLS) ───────────────────────────────────────
+
+  SOURCE 1 — NewsAPI /everything  (best coverage on free tier)
+  ─────────────────────────────────────────────────────────────
+  ⚠️  Use /everything NOT /top-headlines — /top-headlines returns 0 results
+      for country=in on the free developer plan.
+
+  Rotate through these queries (run one per cron tick to spread load):
+
+    GET https://newsapi.org/v2/everything
+      ?q=India+GDP+growth+2025
+      &language=en
+      &sortBy=publishedAt
+      &pageSize=20
+      &apiKey=5f146fc58909409caeffba7c49a476fe
+
+    GET https://newsapi.org/v2/everything
+      ?q=India+unemployment+rate
+      &language=en&sortBy=publishedAt&pageSize=20
+      &apiKey=5f146fc58909409caeffba7c49a476fe
+
+    GET https://newsapi.org/v2/everything
+      ?q=India+inflation+RBI
+      &language=en&sortBy=publishedAt&pageSize=20
+      &apiKey=5f146fc58909409caeffba7c49a476fe
+
+    GET https://newsapi.org/v2/everything
+      ?q=India+poverty+rate+OR+India+fiscal+deficit
+      &language=en&sortBy=publishedAt&pageSize=20
+      &apiKey=5f146fc58909409caeffba7c49a476fe
+
+  From each article use:  title + ". " + description  as the claim text.
+  Skip articles where description is null.
+
+  SOURCE 2 — Google Fact Check API  (BETTER for viral/social-media claims)
+  ─────────────────────────────────────────────────────────────────────────
+  This indexes claims already fact-checked by AFP, AltNews, BOOM, Snopes.
+  These are claims that went viral enough to be investigated — ideal source.
+
+    GET https://factchecktools.googleapis.com/v1alpha1/claims:search
+      ?query=India+economy
+      &languageCode=en
+      &pageSize=20
+      &key=AIzaSyAQOu_R1kR_m6QBMhM6p2zN6XNjTmYYXx0
+
+  From each result:
+    claim text     → claimReview[0].claim.text       → send to /verify
+    existing label → claimReview[0].textualRating     → "False"/"Misleading"
+    source         → claimReview[0].publisher.name
+    url            → claimReview[0].url
+
+  ── DANGER SCORE FORMULA (0–100) ─────────────────────────────────────────
+
     verdict_weight   : accurate=0, misleading=40, false=80, unverifiable=15
     confidence_bonus : confidence × 20   (max 20 points)
     recency_bonus    : published < 2h ago → +10, < 24h → +5, else 0
@@ -869,36 +944,112 @@ SECTION 8 — TRENDING RUMOURS FEATURE (full spec)
     Example: false claim (80) + 0.9 conf (+18) + 3 sources (+10) + 1h ago (+10)
              = 118 → capped at 100
 
-  NEWS SOURCES (fetched by the backend, NOT frontend):
-    Primary:
-      NewsAPI:           q='India economy OR GDP OR inflation' country=in
-      Google Fact Check:  query='India' → AltNews, FactChecker.in, Boom, AFP
-    Secondary (add later):
-      GNews, The Hindu RSS, PIB, Moneycontrol RSS
+  ── BACKEND CRON FLOW (every 30 min) ─────────────────────────────────────
 
-  BACKEND CRON FLOW (every 30 min):
-    1. GET NewsAPI → 20 latest articles
-    2. GET Google Fact Check → 20 latest
-    3. Deduplicate by URL (skip if already in DB)
+    1. GET NewsAPI /everything → 20 latest articles
+    2. GET Google Fact Check   → 20 latest claims
+    3. Deduplicate by URL (skip if already in trending_stories)
     4. For each new article:
-         a. POST localhost:5001/analyze → extract claims
-         b. Take highest-confidence claim
-         c. POST localhost:5001/verify  → get verdict
+         a. Build claim text: article.title + ". " + article.description
+         b. POST https://eyesee11-b-ware.hf.space/verify  { text: claimText }
+         c. Filter: only save if verdict === 'false' || 'misleading'
          d. Compute danger_score
-         e. INSERT into trending_stories
+         e. UPSERT into trending_stories (findOneAndUpdate with upsert:true)
     5. DEL Redis trending_feed (invalidate cache)
     6. UPDATE trending_stories SET is_active=0 WHERE fetched_at < NOW() - 48h
 
-  FRONTEND /trending PAGE:
-    Card grid sorted by danger_score.
-    Each card:
-      ┌──────────────────────────────────────────────────┐
-      │ [FALSE]  India's GDP grew 12% in 2025           │ ← verdict badge
-      │ Times of India · 2h ago                          │ ← source + time
-      │ ██████████████████████████████░░░  87/100       │ ← danger bar
-      │ Claimed: 12.0%  ·  Official: 6.5%  ·  Error: 85%│
-      │ ▸ View full analysis                             │ ← expands evidence
-      └──────────────────────────────────────────────────┘
+  KEY PACKAGES:
+    npm install node-cron axios
+
+  CRON JOB SKELETON:
+    cron.schedule('0 */30 * * * *', async () => {
+      // Redis lock: prevent overlapping runs
+      const lock = await redis.set('trending_job_lock','1','NX','EX',300);
+      if (!lock) return;
+      try {
+        const articles = await fetchFromNewsAPI();         // NewsAPI call
+        const factChecks = await fetchFromGoogleFactCheck(); // FC API call
+        const all = [...articles, ...factChecks];
+        for (const item of all) {
+          const result = await axios.post(
+            'https://eyesee11-b-ware.hf.space/verify',
+            { text: item.claimText }
+          );
+          if (['false','misleading'].includes(result.data.verdict)) {
+            await TrendingStory.findOneAndUpdate(
+              { sourceUrl: item.url },   // dedup key
+              { headline, verdict, confidence, dangerScore, ... },
+              { upsert: true }
+            );
+          }
+        }
+        await redis.del('trending_feed');
+      } finally {
+        await redis.del('trending_job_lock');
+      }
+    });
+
+  ── POSTMAN VALIDATION STEPS (test before writing code) ──────────────────
+
+  Run these manually in Postman to confirm the data pipeline works:
+
+  STEP A — Confirm NewsAPI returns results:
+    GET https://newsapi.org/v2/everything
+        ?q=India+GDP+OR+India+unemployment
+        &language=en&sortBy=publishedAt&pageSize=5
+        &apiKey=5f146fc58909409caeffba7c49a476fe
+    → Should return articles[]. If totalResults=0, change the query.
+
+  STEP B — Confirm HF model is warm:
+    GET https://eyesee11-b-ware.hf.space/health
+    → Expect: { "status": "healthy", "bart_model": "loaded" }
+
+  STEP C — Verify an article through the HF model:
+    POST https://eyesee11-b-ware.hf.space/verify
+    Body: { "text": "<paste article title>. <paste article description>" }
+    → Check verdict, confidence, evidence[], explanation in response
+
+  STEP D — Test Google Fact Check directly:
+    GET https://factchecktools.googleapis.com/v1alpha1/claims:search
+        ?query=India+economy&languageCode=en&pageSize=10
+        &key=AIzaSyAQOu_R1kR_m6QBMhM6p2zN6XNjTmYYXx0
+    → Returns AFP/AltNews/BOOM claims with existing textualRating
+    → These are the most viral/dangerous claims to display
+
+  STEP E — Bulk verify via /analyze (for paragraph-length descriptions):
+    POST https://eyesee11-b-ware.hf.space/analyze
+    Body: { "text": "<full article description paragraph>" }
+    → Returns per-sentence extraction + claim_probability scores
+
+  ── FRONTEND /trending PAGE ───────────────────────────────────────────────
+
+  Card grid sorted by danger_score. Auto-polls GET /api/trending every 5 min.
+  Filter chips: ALL | FALSE | MISLEADING | ACCURATE | UNVERIFIABLE
+  Sort toggle: DANGER SCORE | RECENCY
+
+  Each card:
+    ┌──────────────────────────────────────────────────┐
+    │ [FALSE]  India's GDP grew 12% in 2025           │ ← verdict badge
+    │ Times of India · 2h ago                          │ ← source + time
+    │ ██████████████████████████████░░░  87/100       │ ← danger bar
+    │ Claimed: 12.0%  ·  Official: 6.5%  ·  Error: 85%│
+    │ ▸ View full analysis                             │ ← expands evidence
+    └──────────────────────────────────────────────────┘
+
+  Color coding:
+    false        → red-600
+    misleading   → orange-500
+    accurate     → green-600
+    unverifiable → gray-500
+
+  ── FILES TO CREATE ───────────────────────────────────────────────────────
+
+    backend/controllers/trendingController.js   ← cron + HF calls + DB writes
+    backend/routes/trendingRoutes.js            ← GET /api/trending endpoints
+    backend/jobs/trendingJob.js                 ← node-cron scheduler
+    frontend/src/pages/TrendingPage.jsx         ← card grid display
+    frontend/src/components/VerdictBadge.jsx    ← color-coded verdict pill
+    frontend/src/components/DangerScoreBar.jsx  ← 0-100 gradient bar
 
 
 ================================================================================
@@ -917,10 +1068,11 @@ SECTION 9 — ENVIRONMENT VARIABLES
     REDIS_URL=redis://localhost:6379
     PORT=5000
 
-  nlp-service/.env:  (already created)
-    NEWS_API_KEY=your_key_here
-    GOOGLE_FACT_CHECK_API_KEY=your_key_here
-    GEMINI_API_KEY=your_key_here
+  nlp-service/.env:  ✅ ALREADY CONFIGURED
+    NEWS_API_KEY=key
+    GOOGLE_FACT_CHECK_API_KEY=key
+    GEMINI_API_KEY=key
+    NLP_SERVICE_URL=https://eyesee11-b-ware.hf.space
 
 
 ================================================================================

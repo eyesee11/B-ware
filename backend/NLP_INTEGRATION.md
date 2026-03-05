@@ -1,18 +1,93 @@
 # B-ware NLP Service — Backend Integration Guide
 
+> **Last reviewed:** March 6, 2026 — reflects NLP service v1.0.0 (all 4 priority groups complete, 86/86 tests passing).
+
 This guide is for the **Node.js backend team**. It covers every endpoint exposed
 by the NLP microservice, the exact request/response shapes, ready-to-paste
 `axios` snippets, and error-handling patterns.
 
-> **Live docs while service is running:** http://localhost:5001/docs  
+> **Live docs (production):** https://eyesee11-b-ware.hf.space/docs  
+> **Live docs (local dev):** http://localhost:5001/docs  
 > Swagger UI shows all schemas, lets you fire real requests, and has copy-paste
 > `curl` examples for every endpoint.
 
 ---
 
+## 0. Integration Architecture
+
+```
+┌──────────────────────────────────┐
+│   React App — localhost:3000      │
+│   (Axios + JWT in headers)        │
+└─────────────────┬────────────────┘
+                  │ HTTP  Authorization: Bearer <JWT>
+                  ▼
+┌──────────────────────────────────┐
+│  Node.js Backend — localhost:5000 │
+│                                  │
+│  1. cors()       (allow :3000)   │
+│  2. express.json()               │
+│  3. rateLimiter  (100/15min)     │
+│  4. auth.js      (verify JWT)    │
+│                                  │
+│  Routes:                         │
+│  /api/auth/*   — register/login  │
+│  /api/claims/* — verify/history  │
+│  /api/trending/* — rumour feed   │
+└──────┬──────────────┬────────────┘
+       │              │
+       ▼              ▼
+┌────────────┐  ┌──────────────────────────────┐
+│ MySQL:3306 │  │  NLP Service                 │
+│ Redis:6379 │  │  Local:  http://localhost:5001│
+└────────────┘  │  Prod:   https://eyesee11-   │
+                │          b-ware.hf.space      │
+                └──────────────────────────────┘
+```
+
+**Data flow for a single claim verification:**
+
+1. User types claim in React → clicks "Verify"
+2. React `POST /api/claims/verify` → Node backend (with JWT)
+3. Backend hashes claim (MD5) → checks `Redis claim_result:<hash>` (24 h TTL)
+4. Cache hit → return instantly, skip NLP call
+5. Cache miss → `INSERT claims (status='pending')`
+6. Backend `POST /verify` → NLP service
+7. NLP runs Tier 1 → 2 → 3 → returns `FullVerificationResult`
+8. `INSERT verification_log` + `UPDATE claims (status='verified')`
+9. `SET Redis claim_result:<hash>` (TTL 24 h)
+10. Return result to React
+
+> ⚠️ **The frontend must NEVER call the NLP service directly.**  
+> All requests go through the Node backend (`localhost:5000`), which adds auth,
+> Redis dedup caching, rate limiting, and database persistence.
+
+---
+
 ## 1. Service Setup
 
-### Development (local)
+### Production (HuggingFace — already deployed)
+
+The NLP service is **live on HuggingFace Spaces**. You do not need to run it
+yourself unless you are working offline.
+
+|                  | URL                                       |
+| ---------------- | ----------------------------------------- |
+| **API base**     | `https://eyesee11-b-ware.hf.space`        |
+| **Swagger UI**   | `https://eyesee11-b-ware.hf.space/docs`   |
+| **Health check** | `https://eyesee11-b-ware.hf.space/health` |
+
+Set in `backend/.env`:
+
+```
+NLP_SERVICE_URL=https://eyesee11-b-ware.hf.space
+```
+
+The trending cron job (`backend/jobs/trendingJob.js`) also calls this URL
+directly for automated news verification — make sure it uses this value from
+`process.env.NLP_SERVICE_URL`.
+
+### Development (local — optional, for offline testing)
 
 ```bash
 # From the project root
@@ -26,9 +101,10 @@ cd nlp-service
 uvicorn main:app --reload --port 5001
 ```
 
-The service is now at **`http://localhost:5001`**.
+The service is now at **`http://localhost:5001`**. Switch `NLP_SERVICE_URL` in
+`backend/.env` to `http://localhost:5001` while developing locally.
 
-### Docker (staging / production)
+### Docker (self-hosted staging)
 
 ```bash
 cd nlp-service
@@ -43,7 +119,29 @@ docker run -p 5001:5001 --env-file .env bware-nlp
 
 ## 2. Required Environment Variables
 
-Copy `nlp-service/.env.example` → `nlp-service/.env` and fill in the values:
+### Backend (`backend/.env`)
+
+Create `backend/.env` (copy from `backend/.env.example` and fill in):
+
+```
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=root
+DB_PASSWORD=your_mysql_password
+DB_NAME=bware
+JWT_SECRET=generate_a_random_64_char_string
+JWT_EXPIRES_IN=7d
+NLP_SERVICE_URL=https://eyesee11-b-ware.hf.space
+REDIS_URL=redis://localhost:6379
+PORT=5000
+```
+
+> Use `NLP_SERVICE_URL=http://localhost:5001` when running the NLP service locally.
+
+### NLP Service (`nlp-service/.env`) — already configured on HuggingFace
+
+Only needed when running the NLP service locally. Copy `nlp-service/.env.example`
+→ `nlp-service/.env`:
 
 | Variable                    | Used by                            | Notes                       |
 | --------------------------- | ---------------------------------- | --------------------------- |
@@ -96,13 +194,35 @@ nlp.interceptors.response.use(
 module.exports = nlp;
 ```
 
-Add `NLP_SERVICE_URL=http://localhost:5001` to your backend's `.env`.
+Add `NLP_SERVICE_URL=https://eyesee11-b-ware.hf.space` to your backend's `.env` (use `http://localhost:5001` for local dev). Also add the key to `backend/.env.example` as a placeholder — it is not yet in that file.
 
 ---
 
-## 5. Endpoints Reference
+## 5. Backend → NLP Service Call Pattern
 
-### 5.1 Health Check
+All NLP calls from the backend follow this pattern:
+
+1. **Check Redis dedup** — `GET claim_result:<md5(text)>` — if hit, return immediately
+2. **Call NLP service** — choose the right endpoint based on user's request depth
+3. **Persist to MySQL** — `INSERT/UPDATE claims` + `INSERT verification_log`
+4. **Cache result** — `SET claim_result:<md5(text)> EX 86400` (24 h)
+
+```
+Backend endpoint  →  NLP endpoint called
+──────────────────────────────────────────
+POST /api/claims/verify  →  POST /verify        (full RAV pipeline)
+POST /api/claims/quick   →  POST /verify/quick  (Tier 1 only, fastest)
+POST /api/claims/deep    →  POST /verify/deep   (force all 3 tiers)
+```
+
+> ⚠️ Claim endpoints (`/api/claims/*`) require `Authorization: Bearer <JWT>`.  
+> Auth routes (`/api/auth/*`) and trending routes (`/api/trending/*`) are public.
+
+---
+
+## 6. Endpoints Reference
+
+### 6.1 Health Check
 
 ```
 GET /health
@@ -136,11 +256,11 @@ async function checkNlpHealth() {
 
 - `status: "healthy"` → all API keys configured
 - `status: "degraded"` → at least one key missing (Tier 2/3 may skip that source)
-- `bart_model: "loaded"` → BART is warm (first `/verify/deep` call triggers load)
+- `bart_model: "loaded"` → BART is warm in memory; loaded on demand the first time any claim reaches Tier 2 (i.e. the first `/verify` or `/verify/deep` call that escalates past Tier 1)
 
 ---
 
-### 5.2 Extract — single claim
+### 6.2 Extract — single claim
 
 ```
 POST /extract
@@ -190,7 +310,7 @@ async function extractClaim(text) {
 
 ---
 
-### 5.3 Batch Extract — up to 50 claims
+### 6.3 Batch Extract — up to 50 claims
 
 ```
 POST /batch
@@ -248,7 +368,7 @@ whole batch never crashes.
 
 ---
 
-### 5.4 Analyze — full paragraph
+### 6.4 Analyze — full paragraph
 
 ```
 POST /analyze
@@ -312,7 +432,7 @@ async function analyzeParagraph(text) {
 
 ---
 
-### 5.5 Metrics list
+### 6.5 Metrics list
 
 ```
 GET /metrics
@@ -328,7 +448,7 @@ const { data } = await nlp.get("/metrics");
 
 ---
 
-### 5.6 Quick Verify — Tier 1 only (fastest)
+### 6.6 Quick Verify — Tier 1 only (fastest)
 
 ```
 POST /verify/quick
@@ -383,7 +503,7 @@ async function quickVerify(text) {
 
 ---
 
-### 5.7 Full Verify — Tier 1 + 2 + 3 (recommended for production)
+### 6.7 Full Verify — Tier 1 + 2 + 3 (recommended for production)
 
 ```
 POST /verify
@@ -411,7 +531,8 @@ async function fullVerify(text) {
   "official_value": 6.49,
   "percentage_error": 15.48,
   "official_source": "World Bank",
-  "source_url": "https://...",
+  "indicator_code": "NY.GDP.MKTP.KD.ZG",
+  "source_url": "https://data.worldbank.org/indicator/NY.GDP.MKTP.KD.ZG?locations=IN",
   "evidence": [
     {
       "source": "Reuters",
@@ -427,9 +548,11 @@ async function fullVerify(text) {
 }
 ```
 
+> **Input preprocessing:** before routing, both `/verify` and `/verify/deep` automatically run `preprocess_claim()` on the submitted text — stripping HTML tags, removing zero-width Unicode chars, collapsing whitespace, and applying NFC normalisation. You do not need to clean the text before sending it.
+
 ---
 
-### 5.8 Deep Verify — forces all 3 tiers
+### 6.8 Deep Verify — forces all 3 tiers
 
 ```
 POST /verify/deep
@@ -437,6 +560,8 @@ POST /verify/deep
 
 Forces Tier 1 + 2 + 3 regardless of confidence. Slowest (~3–8 s). Use only for
 high-stakes claims. **Rate limited: 10 requests / minute per IP.**
+
+Like `/verify`, input is automatically preprocessed via `preprocess_claim()` (HTML strip, whitespace normalisation, Unicode NFC) before the pipeline runs.
 
 ```js
 async function deepVerify(text) {
@@ -461,7 +586,7 @@ try {
 
 ---
 
-## 6. Wiring All Features — Node.js Route Examples
+## 7. Wiring All Features — Node.js Route Examples
 
 ### Claim submission → extract + store
 
@@ -539,7 +664,7 @@ router.post("/claims/:id/verify", async (req, res) => {
 
 ---
 
-## 7. Error Handling Reference
+## 8. Error Handling Reference
 
 | HTTP status    | Meaning                    | What to do                                                    |
 | -------------- | -------------------------- | ------------------------------------------------------------- |
@@ -553,7 +678,7 @@ Axios timeout (`35_000 ms`) fires as `ECONNABORTED` — treat it the same as 500
 
 ---
 
-## 8. CORS
+## 9. CORS
 
 The NLP service currently allows origins:
 
@@ -567,7 +692,7 @@ avoid in production (all NLP calls should flow through Node).
 
 ---
 
-## 9. Supported Metrics (10)
+## 10. Supported Metrics (10)
 
 | Metric name               | `value_type` | World Bank indicator |
 | ------------------------- | ------------ | -------------------- |
@@ -586,7 +711,7 @@ Use `GET /metrics` to get the list at runtime (stays in sync automatically).
 
 ---
 
-## 10. Multi-country Support
+## 11. Multi-country Support
 
 The NLP service auto-detects the country from claim text.  
 Currently supported: India, USA, UK, China, Japan, Germany, France, Brazil,
@@ -599,3 +724,17 @@ Examples the detector handles:
 - `"UK unemployment..."` → `GBR`
 
 Unrecognised countries default to `IND`.
+
+---
+
+## 12. Redis Keys Used by the Backend (NLP-related)
+
+| Key pattern              | TTL    | Set by               | Purpose                                   |
+| ------------------------ | ------ | -------------------- | ----------------------------------------- |
+| `claim_result:<md5hash>` | 24 h   | `claimController`    | Dedup — skip NLP call for repeated claims |
+| `trending_feed`          | 5 min  | `trendingController` | Cache `GET /api/trending` response        |
+| `stats_cache`            | 10 min | `claimController`    | Cache dashboard aggregate stats           |
+
+The NLP service also has its own internal L1 cache (`_ResultCache`, 1 h TTL,
+keyed on MD5 + `force_tier3`). Redis is the L2 cache sitting in the backend
+before any request reaches the NLP service at all.
