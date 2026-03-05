@@ -897,22 +897,22 @@ SECTION 8 — TRENDING RUMOURS FEATURE (full spec)
       &language=en
       &sortBy=publishedAt
       &pageSize=20
-      &apiKey=5f146fc58909409caeffba7c49a476fe
+      &apiKey=YOUR_NEWS_API_KEY
 
     GET https://newsapi.org/v2/everything
       ?q=India+unemployment+rate
       &language=en&sortBy=publishedAt&pageSize=20
-      &apiKey=5f146fc58909409caeffba7c49a476fe
+      &apiKey=YOUR_NEWS_API_KEY
 
     GET https://newsapi.org/v2/everything
       ?q=India+inflation+RBI
       &language=en&sortBy=publishedAt&pageSize=20
-      &apiKey=5f146fc58909409caeffba7c49a476fe
+      &apiKey=YOUR_NEWS_API_KEY
 
     GET https://newsapi.org/v2/everything
       ?q=India+poverty+rate+OR+India+fiscal+deficit
       &language=en&sortBy=publishedAt&pageSize=20
-      &apiKey=5f146fc58909409caeffba7c49a476fe
+      &apiKey=YOUR_NEWS_API_KEY
 
   From each article use:  title + ". " + description  as the claim text.
   Skip articles where description is null.
@@ -926,7 +926,7 @@ SECTION 8 — TRENDING RUMOURS FEATURE (full spec)
       ?query=India+economy
       &languageCode=en
       &pageSize=20
-      &key=AIzaSyAQOu_R1kR_m6QBMhM6p2zN6XNjTmYYXx0
+      &key=key
 
   From each result:
     claim text     → claimReview[0].claim.text       → send to /verify
@@ -997,7 +997,7 @@ SECTION 8 — TRENDING RUMOURS FEATURE (full spec)
     GET https://newsapi.org/v2/everything
         ?q=India+GDP+OR+India+unemployment
         &language=en&sortBy=publishedAt&pageSize=5
-        &apiKey=5f146fc58909409caeffba7c49a476fe
+        &apiKey=YOUR_NEWS_API_KEY
     → Should return articles[]. If totalResults=0, change the query.
 
   STEP B — Confirm HF model is warm:
@@ -1012,7 +1012,7 @@ SECTION 8 — TRENDING RUMOURS FEATURE (full spec)
   STEP D — Test Google Fact Check directly:
     GET https://factchecktools.googleapis.com/v1alpha1/claims:search
         ?query=India+economy&languageCode=en&pageSize=10
-        &key=AIzaSyAQOu_R1kR_m6QBMhM6p2zN6XNjTmYYXx0
+        &key=YOUR_GOOGLE_FACT_CHECK_API_KEY
     → Returns AFP/AltNews/BOOM claims with existing textualRating
     → These are the most viral/dangerous claims to display
 
