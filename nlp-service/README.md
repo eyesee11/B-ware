@@ -12,4 +12,4 @@ app_port: 7860
 
 FastAPI NLP microservice for claim extraction and fact verification.
 
-**Swagger docs:** `https://eyesee11-bware-nlp.hf.space/docs`
+**Swagger docs:** `https://eyesee11-b-ware.hf.space/docs`
