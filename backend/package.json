@@ -1,22 +1,27 @@
 {
-  "name": "backend",
+  "name": "bware-backend",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Backend for AI Fake News + Policy Claim Verifier",
+  "main": "server.js",
+  "type": "commonjs",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node server.js",
+    "dev": "nodemon server.js"
   },
-  "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
   "dependencies": {
+    "axios": "^1.13.6",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.2.1",
+    "ioredis": "^5.10.0",
     "jsonwebtoken": "^9.0.3",
-    "mysql2": "^3.18.2"
+    "mysql2": "^3.18.2",
+    "node-cron": "^4.2.1",
+    "rate-limit-redis": "^4.3.1"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"
