@@ -14,7 +14,9 @@ module.exports = async function auth(req, res, next) {
     return res.status(401).json({ error: "Invalid or expired token" });
   }
 
-  const blacklisted = await redis.get(`jwt_blacklist:${decoded.jti}`);
+  const blacklisted = await redis
+    .get(`jwt_blacklist:${decoded.jti}`)
+    .catch(() => null);
   if (blacklisted)
     return res.status(401).json({ error: "Token has been revoked" });
 

@@ -17,7 +17,7 @@ CREATE TABLE claims (
     id               INT AUTO_INCREMENT PRIMARY KEY,
     user_id          INT          NOT NULL,
     original_text    TEXT         NOT NULL,             -- the raw claim text
-    claim_hash       CHAR(32)     DEFAULT NULL,         -- md5 of original_text, used for Redis dedup
+    claim_hash       CHAR(64)      DEFAULT NULL,         -- sha256 hex of original_text, used for Redis dedup
     extracted_metric VARCHAR(200) DEFAULT NULL,         -- e.g. "GDP growth rate"
     extracted_value  DECIMAL(15,2) DEFAULT NULL,        -- e.g. 7.50
     extracted_year   INT           DEFAULT NULL,        -- e.g. 2024
@@ -128,10 +128,12 @@ CREATE TABLE trending_stories (
     evidence_json  JSON        DEFAULT NULL,
     tier_used      VARCHAR(20) DEFAULT NULL,
     is_active      TINYINT(1)  DEFAULT 1,            -- set to 0 for stories > 48h old
+    url_hash       CHAR(32)    DEFAULT NULL,          -- MD5(source_url), indexed for fast dedup check
 
-    INDEX idx_danger  (danger_score),
-    INDEX idx_fetched (fetched_at),
-    INDEX idx_active  (is_active)
+    INDEX idx_danger   (danger_score),
+    INDEX idx_fetched  (fetched_at),
+    INDEX idx_active   (is_active),
+    INDEX idx_url_hash (url_hash)
 );
 
 CREATE TABLE source_stats (
@@ -152,3 +154,4 @@ SELECT
 FROM information_schema.tables
 WHERE table_schema = 'bware_ai'
 ORDER BY create_time;
+

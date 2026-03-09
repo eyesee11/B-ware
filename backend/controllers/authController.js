@@ -23,7 +23,10 @@ function makeToken(user) {
 
 // ---------------- REGISTER USER ----------------
 exports.register = async (req, res) => {
-  const { name, email, password } = req.body;
+  const body     = req.body ?? {};
+  const name     = body.name?.trim();
+  const email    = body.email?.trim().toLowerCase();
+  const password = body.password;
 
   // checking required fields
   if (!name || !email || !password) {
@@ -96,7 +99,7 @@ exports.register = async (req, res) => {
 
 // ---------------- LOGIN USER ----------------
 exports.login = async (req, res) => {
-  const { email, password } = req.body;
+  const { email, password } = req.body ?? {};
 
   // checking required fields
   if (!email || !password) {
@@ -109,10 +112,11 @@ exports.login = async (req, res) => {
   }
 
   try {
-    // find user by email
-    const [rows] = await db.query("SELECT * FROM users WHERE email = ?", [
-      email,
-    ]);
+    // find user by email — only fetch columns we actually need
+    const [rows] = await db.query(
+      "SELECT id, name, email, role, password_hash FROM users WHERE email = ?",
+      [email],
+    );
 
     const user = rows[0];
 
@@ -146,13 +150,18 @@ exports.logout = async (req, res) => {
   // calculate remaining token time
   const ttl = exp - Math.floor(Date.now() / 1000);
 
-  // blacklist token so it can't be used again
-  if (ttl > 0) {
-    await redis.set(`jwt_blacklist:${jti}`, "1", "EX", ttl);
-  }
+  try {
+    // blacklist token so it can't be used again
+    if (ttl > 0) {
+      await redis.set(`jwt_blacklist:${jti}`, "1", "EX", ttl);
+    }
 
-  // remove session from redis
-  await redis.del(`session:${id}`);
+    // remove session from redis
+    await redis.del(`session:${id}`);
+  } catch (err) {
+    console.error("logout redis error:", err.message);
+    // token will expire naturally; still return success
+  }
 
   res.json({ message: "Logged out" });
 };
