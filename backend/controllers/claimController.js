@@ -3,7 +3,6 @@ const db = require("../config/db"); // mysql database connection
 const redis = require("../config/redis"); // redis used for caching results
 const nlp = require("../services/nlpService"); // service which calls NLP verification API
 
-
 // create hash of claim text so we can cache same claim results
 function hashText(text) {
   return crypto
@@ -11,7 +10,6 @@ function hashText(text) {
     .update(text.trim().toLowerCase())
     .digest("hex");
 }
-
 
 // this function is used by all verify routes
 // only endpoint changes (normal / quick / deep verify)
@@ -35,7 +33,12 @@ async function runVerify(req, res, endpoint) {
   const hash = hashText(text);
 
   // check if result already exists in redis cache
-  const cached = await redis.get(`claim_result:${hash}`);
+  let cached = null;
+  try {
+    cached = await redis.get(`claim_result:${hash}`);
+  } catch {
+    /* Redis unavailable — fall through to live verification */
+  }
 
   if (cached) {
     try {
@@ -44,7 +47,9 @@ async function runVerify(req, res, endpoint) {
         from_cache: true,
       });
     } catch {
-      await redis.del(`claim_result:${hash}`);
+      try {
+        await redis.del(`claim_result:${hash}`);
+      } catch {}
     }
   }
 
@@ -54,7 +59,7 @@ async function runVerify(req, res, endpoint) {
     // first insert claim in database with pending status
     const [ins] = await db.query(
       "INSERT INTO claims (user_id, original_text, claim_hash, status) VALUES (?, ?, ?, ?)",
-      [userId, text, hash, "pending"]
+      [userId, text, hash, "pending"],
     );
 
     claimId = ins.insertId;
@@ -107,7 +112,7 @@ async function runVerify(req, res, endpoint) {
         confidence,
         explanation,
         evidenceJson,
-      ]
+      ],
     );
 
     // update claim record with extracted data and final verdict
@@ -129,7 +134,7 @@ async function runVerify(req, res, endpoint) {
         verdict,
         confidence,
         claimId,
-      ]
+      ],
     );
 
     // response object returned to frontend
@@ -155,19 +160,16 @@ async function runVerify(req, res, endpoint) {
       `claim_result:${hash}`,
       JSON.stringify(response),
       "EX",
-      86400
+      86400,
     );
 
     res.json(response);
-
   } catch (err) {
-
     // if verification fails update claim status
     if (claimId) {
-      await db.query(
-        "UPDATE claims SET status = 'failed' WHERE id = ?",
-        [claimId]
-      );
+      await db.query("UPDATE claims SET status = 'failed' WHERE id = ?", [
+        claimId,
+      ]);
     }
 
     console.error("verify error:", err.message);
@@ -180,9 +182,7 @@ async function runVerify(req, res, endpoint) {
     }
 
     if (err.status === 429) {
-      return res
-        .status(429)
-        .json({ error: "NLP rate limit hit, retry later" });
+      return res.status(429).json({ error: "NLP rate limit hit, retry later" });
     }
 
     res.status(500).json({
@@ -191,12 +191,10 @@ async function runVerify(req, res, endpoint) {
   }
 }
 
-
 // endpoints using same verify logic
 exports.submitClaim = (req, res) => runVerify(req, res, "/verify");
 exports.submitQuick = (req, res) => runVerify(req, res, "/verify/quick");
 exports.submitDeep = (req, res) => runVerify(req, res, "/verify/deep");
-
 
 // get claims submitted by current user
 exports.getUserClaims = async (req, res) => {
@@ -212,12 +210,12 @@ exports.getUserClaims = async (req, res) => {
        WHERE user_id = ?
        ORDER BY created_at DESC
        LIMIT ? OFFSET ?`,
-      [req.user.id, limit, offset]
+      [req.user.id, limit, offset],
     );
 
     const [[{ total }]] = await db.query(
       "SELECT COUNT(*) as total FROM claims WHERE user_id = ?",
-      [req.user.id]
+      [req.user.id],
     );
 
     res.json({
@@ -229,13 +227,11 @@ exports.getUserClaims = async (req, res) => {
         pages: Math.ceil(total / limit),
       },
     });
-
   } catch (err) {
     console.error("getUserClaims:", err.message);
     res.status(500).json({ error: "Could not fetch claims" });
   }
 };
-
 
 // get single claim details
 exports.getClaimById = async (req, res) => {
@@ -248,11 +244,10 @@ exports.getClaimById = async (req, res) => {
        FROM claims c
        LEFT JOIN verification_log v ON v.claim_id = c.id
        WHERE c.id = ? AND c.user_id = ?`,
-      [req.params.id, req.user.id]
+      [req.params.id, req.user.id],
     );
 
-    if (!rows[0])
-      return res.status(404).json({ error: "Claim not found" });
+    if (!rows[0]) return res.status(404).json({ error: "Claim not found" });
 
     const claim = rows[0];
 
@@ -263,27 +258,32 @@ exports.getClaimById = async (req, res) => {
     } catch {}
 
     try {
-      if (claim.tiers_run)
-        claim.tiers_run = JSON.parse(claim.tiers_run);
+      if (claim.tiers_run) claim.tiers_run = JSON.parse(claim.tiers_run);
     } catch {}
 
     res.json(claim);
-
   } catch (err) {
     console.error("getClaimById:", err.message);
     res.status(500).json({ error: "Could not fetch claim" });
   }
 };
 
-
 // statistics of user claims
 exports.getStats = async (req, res) => {
-
   const cacheKey = `stats_cache:${req.user.id}`;
 
   // check if stats exist in redis
-  const cached = await redis.get(cacheKey);
-  if (cached) return res.json(JSON.parse(cached));
+  let cached = null;
+  try {
+    cached = await redis.get(cacheKey);
+  } catch {
+    /* Redis unavailable — fall through to DB */
+  }
+  if (cached) {
+    try {
+      return res.json(JSON.parse(cached));
+    } catch {}
+  }
 
   try {
     const [verdictRows] = await db.query(
@@ -291,14 +291,14 @@ exports.getStats = async (req, res) => {
        FROM claims
        WHERE user_id = ? AND status = 'verified'
        GROUP BY verdict`,
-      [req.user.id]
+      [req.user.id],
     );
 
     const [[{ total, avg_conf }]] = await db.query(
       `SELECT COUNT(*) as total, AVG(confidence) as avg_conf
        FROM claims
        WHERE user_id = ? AND status = 'verified'`,
-      [req.user.id]
+      [req.user.id],
     );
 
     const counts = {
@@ -310,8 +310,7 @@ exports.getStats = async (req, res) => {
 
     // fill verdict counts
     for (const r of verdictRows) {
-      if (r.verdict in counts)
-        counts[r.verdict] = Number(r.count);
+      if (r.verdict in counts) counts[r.verdict] = Number(r.count);
     }
 
     const stats = {
@@ -324,7 +323,6 @@ exports.getStats = async (req, res) => {
     await redis.set(cacheKey, JSON.stringify(stats), "EX", 600);
 
     res.json(stats);
-
   } catch (err) {
     console.error("getStats:", err.message);
     res.status(500).json({ error: "Could not fetch stats" });
