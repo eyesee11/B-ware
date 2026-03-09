@@ -21,7 +21,6 @@ function makeToken(user) {
   );
 }
 
-// ---------------- REGISTER USER ----------------
 exports.register = async (req, res) => {
   const body = req.body ?? {};
   const name = body.name?.trim();
@@ -97,7 +96,6 @@ exports.register = async (req, res) => {
   }
 };
 
-// ---------------- LOGIN USER ----------------
 exports.login = async (req, res) => {
   const { email, password } = req.body ?? {};
 
@@ -143,7 +141,6 @@ exports.login = async (req, res) => {
   }
 };
 
-// ---------------- LOGOUT USER ----------------
 exports.logout = async (req, res) => {
   const { jti, id, exp } = req.user;
 
