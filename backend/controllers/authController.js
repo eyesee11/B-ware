@@ -23,9 +23,9 @@ function makeToken(user) {
 
 // ---------------- REGISTER USER ----------------
 exports.register = async (req, res) => {
-  const body     = req.body ?? {};
-  const name     = body.name?.trim();
-  const email    = body.email?.trim().toLowerCase();
+  const body = req.body ?? {};
+  const name = body.name?.trim();
+  const email = body.email?.trim().toLowerCase();
   const password = body.password;
 
   // checking required fields
