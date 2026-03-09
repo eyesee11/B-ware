@@ -18,7 +18,7 @@ const crypto = require("crypto"); // used to hash url
   + recency bonus (recent news more dangerous)
 */
 
-function calcDangerScore(verdict, confidence, publishedAt,sourceCount) {
+function calcDangerScore(verdict, confidence, publishedAt,sourceCount=1) {
   const weights = {
     false: 80,
     misleading: 40,
@@ -38,7 +38,7 @@ function calcDangerScore(verdict, confidence, publishedAt,sourceCount) {
     if (hoursOld < 2) score += 10;
     else if (hoursOld < 24) score += 5;
   }
-  score+=(scoreCount-1)*5;
+  score+=(sourceCount-1)*5;
   // cap score at 100
   return Math.min(Math.round(score), 100);
 }
