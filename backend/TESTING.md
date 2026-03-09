@@ -12,7 +12,7 @@ npm run dev
 # 1. Health Check
 
 ```
-Invoke-RestMethod http://localhost:5000/api/health | ConvertTo-Json
+Invoke-RestMethod https://b-ware-sand.vercel.app/api/health | ConvertTo-Json
 ```
 
 Expected:
@@ -32,7 +32,7 @@ Expected:
 ## Register
 
 ```
-Invoke-RestMethod -Uri http://localhost:5000/api/auth/register `
+Invoke-RestMethod -Uri https://b-ware-sand.vercel.app/api/auth/register `
  -Method POST `
  -ContentType "application/json" `
  -Body '{"name":"Deepanshu","email":"deep@test.com","password":"test1234"}'
@@ -43,7 +43,7 @@ Invoke-RestMethod -Uri http://localhost:5000/api/auth/register `
 ## Login and Save Token
 
 ```
-$r = Invoke-RestMethod -Uri http://localhost:5000/api/auth/login `
+$r = Invoke-RestMethod -Uri https://b-ware-sand.vercel.app/api/auth/login `
  -Method POST `
  -ContentType "application/json" `
  -Body '{"email":"deep@test.com","password":"test1234"}'
@@ -57,7 +57,7 @@ $TOKEN
 ## Get Current User
 
 ```
-Invoke-RestMethod http://localhost:5000/api/auth/me `
+Invoke-RestMethod https://b-ware-sand.vercel.app/api/auth/me `
  -Headers @{ Authorization = "Bearer $TOKEN" }
 ```
 
@@ -66,7 +66,7 @@ Invoke-RestMethod http://localhost:5000/api/auth/me `
 ## Logout
 
 ```
-Invoke-RestMethod -Uri http://localhost:5000/api/auth/logout `
+Invoke-RestMethod -Uri https://b-ware-sand.vercel.app/api/auth/logout `
  -Method POST `
  -Headers @{ Authorization = "Bearer $TOKEN" }
 ```
@@ -80,7 +80,7 @@ Login first and save `$TOKEN`.
 ## Verify Claim
 
 ```
-Invoke-RestMethod -Uri http://localhost:5000/api/claims/verify `
+Invoke-RestMethod -Uri https://b-ware-sand.vercel.app/api/claims/verify `
  -Method POST `
  -ContentType "application/json" `
  -Headers @{ Authorization = "Bearer $TOKEN" } `
@@ -92,7 +92,7 @@ Invoke-RestMethod -Uri http://localhost:5000/api/claims/verify `
 ## Quick Verify (Tier-1)
 
 ```
-Invoke-RestMethod -Uri http://localhost:5000/api/claims/quick `
+Invoke-RestMethod -Uri https://b-ware-sand.vercel.app/api/claims/quick `
  -Method POST `
  -ContentType "application/json" `
  -Headers @{ Authorization = "Bearer $TOKEN" } `
@@ -104,7 +104,7 @@ Invoke-RestMethod -Uri http://localhost:5000/api/claims/quick `
 ## Deep Verify (All Tiers)
 
 ```
-Invoke-RestMethod -Uri http://localhost:5000/api/claims/deep `
+Invoke-RestMethod -Uri https://b-ware-sand.vercel.app/api/claims/deep `
  -Method POST `
  -ContentType "application/json" `
  -Headers @{ Authorization = "Bearer $TOKEN" } `
@@ -118,13 +118,13 @@ Invoke-RestMethod -Uri http://localhost:5000/api/claims/deep `
 Run the same claim twice.
 
 ```
-Invoke-RestMethod -Uri http://localhost:5000/api/claims/quick `
+Invoke-RestMethod -Uri https://b-ware-sand.vercel.app/api/claims/quick `
  -Method POST `
  -ContentType "application/json" `
  -Headers @{ Authorization = "Bearer $TOKEN" } `
  -Body '{"text":"India GDP growth was 8.2 percent in 2023"}'
 
-$a = Invoke-RestMethod -Uri http://localhost:5000/api/claims/quick `
+$a = Invoke-RestMethod -Uri https://b-ware-sand.vercel.app/api/claims/quick `
  -Method POST `
  -ContentType "application/json" `
  -Headers @{ Authorization = "Bearer $TOKEN" } `
@@ -144,7 +144,7 @@ True
 # 5. Claim History
 
 ```
-Invoke-RestMethod http://localhost:5000/api/claims `
+Invoke-RestMethod https://b-ware-sand.vercel.app/api/claims `
  -Headers @{ Authorization = "Bearer $TOKEN" }
 ```
 
@@ -153,7 +153,7 @@ Invoke-RestMethod http://localhost:5000/api/claims `
 ## Claim History with Pagination
 
 ```
-Invoke-RestMethod "http://localhost:5000/api/claims?page=1&limit=5" `
+Invoke-RestMethod "https://b-ware-sand.vercel.app/api/claims?page=1&limit=5" `
  -Headers @{ Authorization = "Bearer $TOKEN" }
 ```
 
@@ -162,7 +162,7 @@ Invoke-RestMethod "http://localhost:5000/api/claims?page=1&limit=5" `
 ## Get Single Claim
 
 ```
-Invoke-RestMethod "http://localhost:5000/api/claims/1" `
+Invoke-RestMethod "https://b-ware-sand.vercel.app/api/claims/1" `
  -Headers @{ Authorization = "Bearer $TOKEN" }
 ```
 
@@ -171,7 +171,7 @@ Invoke-RestMethod "http://localhost:5000/api/claims/1" `
 # 6. Claim Statistics
 
 ```
-Invoke-RestMethod "http://localhost:5000/api/claims/stats" `
+Invoke-RestMethod "https://b-ware-sand.vercel.app/api/claims/stats" `
  -Headers @{ Authorization = "Bearer $TOKEN" }
 ```
 
@@ -182,7 +182,7 @@ Invoke-RestMethod "http://localhost:5000/api/claims/stats" `
 ## All Trending Stories
 
 ```
-Invoke-RestMethod http://localhost:5000/api/trending
+Invoke-RestMethod https://b-ware-sand.vercel.app/api/trending
 ```
 
 ---
@@ -190,7 +190,7 @@ Invoke-RestMethod http://localhost:5000/api/trending
 ## Filter by Verdict
 
 ```
-Invoke-RestMethod "http://localhost:5000/api/trending?verdict=false"
+Invoke-RestMethod "https://b-ware-sand.vercel.app/api/trending?verdict=false"
 ```
 
 ---
@@ -198,7 +198,7 @@ Invoke-RestMethod "http://localhost:5000/api/trending?verdict=false"
 ## Source Leaderboard
 
 ```
-Invoke-RestMethod http://localhost:5000/api/trending/sources
+Invoke-RestMethod https://b-ware-sand.vercel.app/api/trending/sources
 ```
 
 ---
@@ -206,7 +206,7 @@ Invoke-RestMethod http://localhost:5000/api/trending/sources
 ## Single Trending Story
 
 ```
-Invoke-RestMethod http://localhost:5000/api/trending/1
+Invoke-RestMethod https://b-ware-sand.vercel.app/api/trending/1
 ```
 
 ---
@@ -224,7 +224,7 @@ Invoke-RestMethod https://eyesee11-b-ware.hf.space/health
 ## Tier-1 Numeric Test
 
 ```
-Invoke-RestMethod -Uri http://localhost:5000/api/claims/quick `
+Invoke-RestMethod -Uri https://b-ware-sand.vercel.app/api/claims/quick `
  -Method POST `
  -ContentType "application/json" `
  -Headers @{ Authorization = "Bearer $TOKEN" } `
@@ -236,7 +236,7 @@ Invoke-RestMethod -Uri http://localhost:5000/api/claims/quick `
 ## Tier-2 NLI Test
 
 ```
-Invoke-RestMethod -Uri http://localhost:5000/api/claims/verify `
+Invoke-RestMethod -Uri https://b-ware-sand.vercel.app/api/claims/verify `
  -Method POST `
  -ContentType "application/json" `
  -Headers @{ Authorization = "Bearer $TOKEN" } `
@@ -248,7 +248,7 @@ Invoke-RestMethod -Uri http://localhost:5000/api/claims/verify `
 ## Tier-3 LLM Test
 
 ```
-Invoke-RestMethod -Uri http://localhost:5000/api/claims/deep `
+Invoke-RestMethod -Uri https://b-ware-sand.vercel.app/api/claims/deep `
  -Method POST `
  -ContentType "application/json" `
  -Headers @{ Authorization = "Bearer $TOKEN" } `
@@ -260,7 +260,7 @@ Invoke-RestMethod -Uri http://localhost:5000/api/claims/deep `
 # 9. Bad Claim Test
 
 ```
-Invoke-RestMethod -Uri http://localhost:5000/api/claims/verify `
+Invoke-RestMethod -Uri https://b-ware-sand.vercel.app/api/claims/verify `
  -Method POST `
  -ContentType "application/json" `
  -Headers @{ Authorization = "Bearer $TOKEN" } `

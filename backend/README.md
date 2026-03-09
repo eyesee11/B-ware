@@ -127,7 +127,7 @@ Expected startup output:
 
 ```
 trending cron scheduled (every 30 min)
-B-ware backend -> http://localhost:5000
+B-ware backend -> https://b-ware-sand.vercel.app
 Redis connected
 MySQL connected
 ```
@@ -145,7 +145,7 @@ This fetches 8 India economic indicators from the World Bank API and loads them 
 
 ## API routes
 
-Base path: `http://localhost:5000`
+Base path: `https://b-ware-sand.vercel.app`
 
 ### Health
 
