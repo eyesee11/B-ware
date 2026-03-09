@@ -18,7 +18,7 @@ const crypto = require("crypto"); // used to hash url
   + recency bonus (recent news more dangerous)
 */
 
-function calcDangerScore(verdict, confidence, publishedAt) {
+function calcDangerScore(verdict, confidence, publishedAt,sourceCount) {
   const weights = {
     false: 80,
     misleading: 40,
@@ -38,7 +38,7 @@ function calcDangerScore(verdict, confidence, publishedAt) {
     if (hoursOld < 2) score += 10;
     else if (hoursOld < 24) score += 5;
   }
-
+  score+=(scoreCount-1)*5;
   // cap score at 100
   return Math.min(Math.round(score), 100);
 }
@@ -186,38 +186,83 @@ exports.refreshTrending = async (req, res) => {
 
 // main function which fetches news and verifies them
 async function runTrendingRefresh() {
-  const articles = [];
+  //inner function to fetch news from NewsAPI
+  async function fetchFromNewsAPI() {
+    const articles = [];
 
-  // fetch news from NewsAPI
-  if (process.env.NEWS_API_KEY) {
+    if (process.env.NEWS_API_KEY) {
+      try {
+        const { data } = await axios.get("https://newsapi.org/v2/everything", {
+          params: {
+            q: "India economy GDP inflation unemployment",
+            language: "en",
+            sortBy: "publishedAt",
+            pageSize: 20,
+            apiKey: process.env.NEWS_API_KEY,
+          },
+          timeout: 10000,
+        });
+        for (const a of data.articles || []) {
+          articles.push({
+            headline: a.title,
+            source_name: a.source?.name || "Unknown",
+            source_url: a.url,
+            published_at: a.publishedAt,
+            content: a.description || a.title,
+          });
+        }
+      } catch (err) {
+        console.error("NewsAPI fetch failed:", err.message);
+      }
+    } else {
+      console.log("NEWS_API_KEY not set — skipping news fetch");
+    }
+    return articles;
+  }
+
+  //inner function to fetch claims from Google fact check api
+  async function fetchFromGoogleFactCheck() {
+    const items = [];
+    if (!process.env.GOOGLE_FACT_CHECK_API_KEY) {
+      console.log("GOOGLE_FACT_CHECK_API_KEY not set — skipping");
+      return items;
+    }
     try {
-      const { data } = await axios.get("https://newsapi.org/v2/everything", {
-        params: {
-          q: "India economy GDP inflation unemployment",
-          language: "en",
-          sortBy: "publishedAt",
-          pageSize: 20,
-          apiKey: process.env.NEWS_API_KEY,
+      const { data } = await axios.get(
+        "https://factchecktools.googleapis.com/v1alpha1/claims:search",
+        {
+          params: {
+            query: "India economy",
+            languageCode: "en",
+            pageSize: 20,
+            key: process.env.GOOGLE_FACT_CHECK_API_KEY,
+          },
+          timeout: 10000,
         },
-        timeout: 10000,
-      });
-
+      );
       // convert api response to our article format
-      for (const a of data.articles || []) {
-        articles.push({
-          headline: a.title,
-          source_name: a.source?.name || "Unknown",
-          source_url: a.url,
-          published_at: a.publishedAt,
-          content: a.description || a.title,
+      for (const claim of data.claims || []) {
+        const review = claim.claimReview?.[0];
+        if (!review) continue;
+        items.push({
+          headline: claim.title,
+          source_name: claim.source?.name || "Unknown",
+          source_url: claim.url,
+          published_at: claim.publishedAt,
+          content: claim.description || claim.title,
         });
       }
     } catch (err) {
-      console.error("NewsAPI fetch failed:", err.message);
+      console.error("Google Fact check fetch failed:", err.message);
     }
-  } else {
-    console.log("NEWS_API_KEY not set — skipping news fetch");
+    return items;
   }
+  //fetch both sources in parallel
+  const [newsArticles, factChecks] = await Promise.all([
+    fetchFromNewsAPI(),
+    fetchFromGoogleFactCheck(),
+  ]);
+  const articles = [...newsArticles, ...factChecks];
 
   // filter articles that are not already stored
   const fresh = [];
@@ -258,10 +303,13 @@ async function runTrendingRefresh() {
         text: top.sentence,
       });
 
+      if (!["false", "misleading"].includes(result.verdict)) continue;
+
       const score = calcDangerScore(
         result.verdict,
         result.confidence,
         article.published_at,
+        result.evidence?.length || 1,
       );
 
       // save trending story
