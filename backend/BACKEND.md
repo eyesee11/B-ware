@@ -394,7 +394,7 @@ official_data_cache
 **Create schema:**
 
 ```bash
-mysql -u root -p bware_ai < database/bware_ai_schema.sql
+mysql -u root -p bware_ai < database/schema.sql
 ```
 
 ---
