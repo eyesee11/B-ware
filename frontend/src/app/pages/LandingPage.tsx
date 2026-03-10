@@ -35,9 +35,7 @@ function LandingPage() {
       >
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <button onClick={() => navigate("/")} className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-emerald-500 rounded-xl flex items-center justify-center">
-              <span className="text-white font-bold text-xl">B</span>
-            </div>
+            <img src="/logo.png" alt="B-ware logo" className="w-10 h-10 rounded-xl object-contain" />
             <div>
               <div className="text-white font-bold text-lg tracking-tight">
                 B-ware
@@ -102,9 +100,7 @@ function LandingPage() {
         <div className="max-w-7xl mx-auto">
           <div className="flex flex-col md:flex-row items-center justify-between gap-6 mb-8">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-emerald-500 rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold text-sm">B</span>
-              </div>
+              <img src="/logo.png" alt="B-ware logo" className="w-8 h-8 rounded-lg object-contain" />
               <div>
                 <div className="text-white font-bold text-sm">B-ware</div>
                 <div className="text-[9px] text-slate-600 uppercase tracking-wider">
