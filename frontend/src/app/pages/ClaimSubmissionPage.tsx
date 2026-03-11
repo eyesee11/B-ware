@@ -2,6 +2,7 @@ import { motion } from "motion/react";
 import { useNavigate } from "react-router";
 import { useState } from "react";
 import { ArrowRight, Info } from "lucide-react";
+import api from "../../api/axios";
 
 const supportedMetrics = [
   "GDP Growth",
@@ -27,14 +28,29 @@ function ClaimSubmissionPage() {
   const [claim, setClaim] = useState("");
   const [selectedDepth, setSelectedDepth] = useState("full");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState("");
 
-  const handleSubmit = () => {
+  // Real API call — picks the right endpoint based on verification depth.
+  // "quick" = Tier 1 only (fastest, numeric check)
+  // "full"  = Adaptive (backend decides which tiers to run)
+  // "deep"  = All 3 tiers forced (most thorough but slowest)
+  const handleSubmit = async () => {
     if (!claim.trim()) return;
     setIsSubmitting(true);
-    
-    setTimeout(() => {
-      navigate("/result/example");
-    }, 2000);
+    setError("");
+    try {
+      const endpoint =
+        selectedDepth === "quick" ? "/api/claims/quick"
+        : selectedDepth === "deep" ? "/api/claims/deep"
+        : "/api/claims/verify";
+
+      const { data } = await api.post(endpoint, { text: claim });
+      navigate(`/result/${data.claim_id}`);
+    } catch (err: any) {
+      setError(err.response?.data?.error || "Verification failed. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -51,9 +67,7 @@ function ClaimSubmissionPage() {
       <header className="fixed top-0 left-0 right-0 z-40 px-6 py-6 backdrop-blur-xl bg-black/50 border-b border-white/5">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <button onClick={() => navigate("/")} className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-emerald-500 rounded-xl flex items-center justify-center">
-              <span className="text-white font-bold text-xl">B</span>
-            </div>
+            <img src="/logo.png" alt="B-ware logo" className="w-10 h-10 rounded-xl object-contain" />
             <div>
               <div className="text-white font-bold text-lg tracking-tight">B-ware</div>
               <div className="text-[10px] text-emerald-400 font-mono uppercase tracking-widest -mt-1">
@@ -68,6 +82,9 @@ function ClaimSubmissionPage() {
             </button>
             <button onClick={() => navigate("/trending")} className="text-sm text-slate-400 hover:text-white transition-colors">
               Trending
+            </button>
+            <button onClick={() => navigate("/analyze")} className="text-sm text-slate-400 hover:text-white transition-colors">
+              Analyze
             </button>
           </nav>
         </div>
@@ -173,6 +190,9 @@ function ClaimSubmissionPage() {
                       <label className="text-sm text-slate-400 mb-3 block">
                         Enter Claim to Verify
                       </label>
+                      {error && (
+                        <p className="text-red-400 text-sm mb-3">{error}</p>
+                      )}
                       <textarea
                         value={claim}
                         onChange={(e) => setClaim(e.target.value)}

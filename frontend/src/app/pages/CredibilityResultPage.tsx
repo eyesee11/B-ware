@@ -1,53 +1,11 @@
 import { motion } from "motion/react";
-import { useNavigate } from "react-router";
+import { useNavigate, useParams } from "react-router";
 import { useState, useEffect } from "react";
-import { ChevronDown, Download, FileText, AlertCircle } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from "recharts";
+import { ChevronDown, AlertCircle } from "lucide-react";
+import { Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
+import api from "../../api/axios";
 
-const mockResult = {
-  claim: "India's GDP growth rate was 7.5% in 2024",
-  credibilityScore: 72,
-  verdict: "Misleading",
-  claimedValue: 7.5,
-  officialValue: 6.49,
-  percentageError: 15.48,
-  tierUsed: "Full (Adaptive)",
-  
-  tier1: {
-    source: "World Bank API",
-    matchStatus: "Partial Match",
-    confidence: 0.89,
-  },
-  
-  tier2: {
-    articles: [
-      {
-        source: "Reuters",
-        headline: "India's GDP grows 6.5% in Q4 2024",
-        nliVerdict: "Contradict",
-        confidence: 0.82,
-      },
-      {
-        source: "Economic Times",
-        headline: "World Bank revises India growth forecast to 6.49%",
-        nliVerdict: "Contradict",
-        confidence: 0.91,
-      },
-    ],
-  },
-  
-  tier3: {
-    llmExplanation: "The claim states India's GDP growth was 7.5%, but official World Bank data shows 6.49% for 2024. This represents a 15.48% error margin. Multiple news sources corroborate the official figure. The claim appears to round up optimistically or cite unofficial projections.",
-  },
-};
-
-const historicalData = [
-  { year: "2020", claimed: 5.2, official: 4.8 },
-  { year: "2021", claimed: 6.8, official: 6.2 },
-  { year: "2022", claimed: 7.1, official: 6.8 },
-  { year: "2023", claimed: 7.3, official: 6.7 },
-  { year: "2024", claimed: 7.5, official: 6.49 },
-];
+// No more mockResult — we fetch real data from the backend.
 
 const verdictDistribution = [
   { name: "Accurate", value: 42, color: "#22C55E" },
@@ -58,15 +16,38 @@ const verdictDistribution = [
 
 function CredibilityResultPage() {
   const navigate = useNavigate();
+  // useParams() reads the ":id" from the URL, e.g. /result/42 → id = "42"
+  // This is exactly like req.params.id in Express.
+  const { id } = useParams();
+
+  const [result, setResult] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
   const [score, setScore] = useState(0);
   const [expandedTier, setExpandedTier] = useState<number | null>(null);
 
+  // Fetch the real claim result when the page loads (or when id changes)
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setScore(mockResult.credibilityScore);
-    }, 500);
-    return () => clearTimeout(timer);
-  }, []);
+    api.get(`/api/claims/${id}`)
+      .then(({ data }) => {
+        setResult(data);
+        // Animate the score after a short delay for visual effect
+        setTimeout(() => setScore(Math.round((data.confidence ?? 0) * 100)), 500);
+      })
+      .catch(() => setResult(null))
+      .finally(() => setLoading(false));
+  }, [id]);
+
+  // Parse evidence JSON safely — the backend stores evidence as a JSON string
+  const evidence = (() => {
+    if (!result?.evidence_json) return [];
+    try {
+      return typeof result.evidence_json === "string"
+        ? JSON.parse(result.evidence_json)
+        : result.evidence_json;
+    } catch {
+      return [];
+    }
+  })();
 
   const getVerdictColor = (verdict: string) => {
     switch (verdict) {
@@ -91,9 +72,7 @@ function CredibilityResultPage() {
       <header className="fixed top-0 left-0 right-0 z-40 px-6 py-6 backdrop-blur-xl bg-black/50 border-b border-white/5">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <button onClick={() => navigate("/")} className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-emerald-500 rounded-xl flex items-center justify-center">
-              <span className="text-white font-bold text-xl">B</span>
-            </div>
+            <img src="/logo.png" alt="B-ware logo" className="w-10 h-10 rounded-xl object-contain" />
             <div>
               <div className="text-white font-bold text-lg tracking-tight">B-ware</div>
               <div className="text-[10px] text-emerald-400 font-mono uppercase tracking-widest -mt-1">
@@ -111,7 +90,30 @@ function CredibilityResultPage() {
         </div>
       </header>
 
-      {/* Main content */}
+      {/* Loading state */}
+      {loading && (
+        <div className="flex items-center justify-center min-h-screen">
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+            className="w-8 h-8 border-2 border-white/30 border-t-white rounded-full"
+          />
+        </div>
+      )}
+
+      {/* Not found state */}
+      {!loading && !result && (
+        <div className="flex flex-col items-center justify-center min-h-screen gap-4">
+          <AlertCircle className="w-12 h-12 text-slate-500" />
+          <p className="text-slate-400">Claim not found</p>
+          <button onClick={() => navigate("/verify")} className="text-blue-400 hover:text-blue-300">
+            Verify a new claim →
+          </button>
+        </div>
+      )}
+
+      {/* Main content — only rendered when we have real data */}
+      {!loading && result && (
       <main className="relative pt-32 pb-20 px-4">
         <div className="max-w-5xl mx-auto space-y-12">
           {/* Verdict Card - Hero Component */}
@@ -132,7 +134,7 @@ function CredibilityResultPage() {
                   className="text-3xl md:text-4xl font-serif font-bold text-white leading-tight"
                   style={{ fontFamily: "'Playfair Display', serif" }}
                 >
-                  "{mockResult.claim}"
+                  "{result.claim_text}"
                 </h1>
               </div>
 
@@ -149,9 +151,9 @@ function CredibilityResultPage() {
                 </div>
 
                 <div className="flex items-center">
-                  <div className={`inline-flex items-center gap-2 px-6 py-3 border rounded-xl text-lg font-semibold ${getVerdictColor(mockResult.verdict)}`}>
+                  <div className={`inline-flex items-center gap-2 px-6 py-3 border rounded-xl text-lg font-semibold ${getVerdictColor(result.verdict)}`}>
                     <AlertCircle className="w-5 h-5" />
-                    {mockResult.verdict}
+                    {result.verdict}
                   </div>
                 </div>
               </div>
@@ -160,33 +162,34 @@ function CredibilityResultPage() {
                 <div className="bg-black/30 rounded-xl p-4">
                   <div className="text-xs text-slate-500 mb-1">Claimed</div>
                   <div className="text-2xl font-mono font-bold text-blue-400">
-                    {mockResult.claimedValue}%
+                    {result.claimed_value ?? "—"}
                   </div>
                 </div>
                 <div className="bg-black/30 rounded-xl p-4">
                   <div className="text-xs text-slate-500 mb-1">Official</div>
                   <div className="text-2xl font-mono font-bold text-emerald-400">
-                    {mockResult.officialValue}%
+                    {result.official_value ?? "—"}
                   </div>
                 </div>
                 <div className="bg-black/30 rounded-xl p-4">
                   <div className="text-xs text-slate-500 mb-1">Error</div>
                   <div className="text-2xl font-mono font-bold text-red-400">
-                    {mockResult.percentageError}%
+                    {result.percentage_error != null ? `${result.percentage_error.toFixed(2)}%` : "—"}
                   </div>
                 </div>
                 <div className="bg-black/30 rounded-xl p-4">
                   <div className="text-xs text-slate-500 mb-1">Tier Used</div>
                   <div className="text-sm font-semibold text-white mt-1">
-                    {mockResult.tierUsed}
+                    {result.tier_used ?? "Adaptive"}
                   </div>
                 </div>
               </div>
 
+              {result.claimed_value != null && result.official_value != null && (
               <div className="space-y-3">
                 <div>
                   <div className="text-xs text-slate-500 mb-2">
-                    Claimed: {mockResult.claimedValue}%
+                    Claimed: {result.claimed_value}
                   </div>
                   <motion.div
                     className="h-3 bg-blue-500/40 rounded-full"
@@ -197,16 +200,19 @@ function CredibilityResultPage() {
                 </div>
                 <div>
                   <div className="text-xs text-slate-500 mb-2">
-                    Official: {mockResult.officialValue}%
+                    Official: {result.official_value}
                   </div>
                   <motion.div
                     className="h-3 bg-emerald-500/60 rounded-full"
                     initial={{ width: 0 }}
-                    animate={{ width: "86.5%" }}
+                    animate={{
+                      width: `${Math.min(100, (result.official_value / result.claimed_value) * 100)}%`,
+                    }}
                     transition={{ duration: 1, delay: 0.7 }}
                   />
                 </div>
               </div>
+              )}
             </div>
           </motion.div>
 
@@ -233,7 +239,7 @@ function CredibilityResultPage() {
                   </div>
                   <div className="text-left">
                     <div className="font-semibold text-white">Tier 1: Numeric Check</div>
-                    <div className="text-xs text-slate-400">{mockResult.tier1.source}</div>
+                    <div className="text-xs text-slate-400">World Bank API</div>
                   </div>
                 </div>
                 <ChevronDown className={`w-5 h-5 text-slate-400 transition-transform ${expandedTier === 1 ? "rotate-180" : ""}`} />
@@ -247,19 +253,24 @@ function CredibilityResultPage() {
                 >
                   <div className="pt-4 space-y-3">
                     <div className="flex justify-between text-sm">
-                      <span className="text-slate-400">Match Status:</span>
-                      <span className="text-amber-400 font-semibold">{mockResult.tier1.matchStatus}</span>
+                      <span className="text-slate-400">Claimed Value:</span>
+                      <span className="text-blue-400 font-mono">{result.claimed_value ?? "—"}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-400">Official Value:</span>
+                      <span className="text-emerald-400 font-mono">{result.official_value ?? "—"}</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-slate-400">Confidence:</span>
-                      <span className="text-emerald-400 font-mono">{mockResult.tier1.confidence}</span>
+                      <span className="text-emerald-400 font-mono">{result.confidence != null ? (result.confidence * 100).toFixed(1) + "%" : "—"}</span>
                     </div>
                   </div>
                 </motion.div>
               )}
             </motion.div>
 
-            {/* Tier 2 */}
+            {/* Tier 2 — NLI Evidence */}
+            {evidence.length > 0 && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -276,7 +287,7 @@ function CredibilityResultPage() {
                   </div>
                   <div className="text-left">
                     <div className="font-semibold text-white">Tier 2: NLI Evidence Check</div>
-                    <div className="text-xs text-slate-400">{mockResult.tier2.articles.length} sources analyzed</div>
+                    <div className="text-xs text-slate-400">{evidence.length} sources analyzed</div>
                   </div>
                 </div>
                 <ChevronDown className={`w-5 h-5 text-slate-400 transition-transform ${expandedTier === 2 ? "rotate-180" : ""}`} />
@@ -289,30 +300,43 @@ function CredibilityResultPage() {
                   className="px-6 pb-6 border-t border-white/10"
                 >
                   <div className="pt-4 space-y-4">
-                    {mockResult.tier2.articles.map((article, i) => (
+                    {evidence.map((article: any, i: number) => (
                       <div key={i} className="bg-black/30 rounded-lg p-4">
                         <div className="flex items-start justify-between mb-2">
                           <div className="font-semibold text-white text-sm">{article.source}</div>
+                          {article.nli_label && (
                           <div className={`px-2 py-1 rounded text-xs font-semibold ${
-                            article.nliVerdict === "Contradict" 
+                            article.nli_label === "contradiction"
                               ? "bg-red-500/10 border border-red-500/30 text-red-400"
-                              : "bg-emerald-500/10 border border-emerald-500/30 text-emerald-400"
+                              : article.nli_label === "entailment"
+                              ? "bg-emerald-500/10 border border-emerald-500/30 text-emerald-400"
+                              : "bg-slate-500/10 border border-slate-500/30 text-slate-400"
                           }`}>
-                            {article.nliVerdict}
+                            {article.nli_label}
                           </div>
+                          )}
                         </div>
-                        <div className="text-sm text-slate-400 mb-2">{article.headline}</div>
+                        {article.title && <div className="text-sm text-slate-400 mb-2">{article.title}</div>}
+                        {article.nli_score != null && (
                         <div className="text-xs text-slate-500">
-                          Confidence: <span className="text-emerald-400 font-mono">{article.confidence}</span>
+                          Confidence: <span className="text-emerald-400 font-mono">{(article.nli_score * 100).toFixed(0)}%</span>
                         </div>
+                        )}
+                        {article.url && (
+                          <a href={article.url} target="_blank" rel="noreferrer" className="text-blue-400 text-xs mt-1 block">
+                            View source →
+                          </a>
+                        )}
                       </div>
                     ))}
                   </div>
                 </motion.div>
               )}
             </motion.div>
+            )}
 
-            {/* Tier 3 */}
+            {/* Tier 3 — LLM Explanation */}
+            {result.explanation && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -343,63 +367,26 @@ function CredibilityResultPage() {
                 >
                   <div className="pt-4">
                     <div className="relative bg-gradient-to-br from-purple-500/10 to-blue-500/10 border border-purple-500/20 rounded-lg p-4">
-                      <div className="absolute inset-0 opacity-50 pointer-events-none" style={{
-                        background: "radial-gradient(circle at top right, rgba(139, 92, 246, 0.1), transparent)",
-                      }} />
                       <p className="relative text-sm text-slate-300 leading-relaxed">
-                        {mockResult.tier3.llmExplanation}
+                        {result.explanation}
                       </p>
                     </div>
                   </div>
                 </motion.div>
               )}
             </motion.div>
+            )}
           </div>
 
-          {/* Infographics Section */}
+          {/* Verdict Distribution (static chart — keep for visual context) */}
           <div>
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-[28px] font-serif font-bold text-white" style={{ fontFamily: "'Playfair Display', serif" }}>
                 Visual Context
               </h2>
-              <div className="flex gap-2">
-                <button className="px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-slate-400 hover:text-white hover:border-white/20 transition-colors flex items-center gap-2">
-                  <Download className="w-4 h-4" />
-                  PNG
-                </button>
-                <button className="px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-slate-400 hover:text-white hover:border-white/20 transition-colors flex items-center gap-2">
-                  <FileText className="w-4 h-4" />
-                  CSV
-                </button>
-              </div>
             </div>
 
-            <div className="grid md:grid-cols-2 gap-6">
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl p-6"
-              >
-                <h3 className="text-sm font-semibold text-white mb-4">Historical Trend</h3>
-                <ResponsiveContainer width="100%" height={200}>
-                  <LineChart data={historicalData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
-                    <XAxis dataKey="year" stroke="#94a3b8" fontSize={12} />
-                    <YAxis stroke="#94a3b8" fontSize={12} />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "#000",
-                        border: "1px solid #ffffff20",
-                        borderRadius: "8px",
-                      }}
-                    />
-                    <Line type="monotone" dataKey="claimed" stroke="#3B82F6" strokeWidth={2} />
-                    <Line type="monotone" dataKey="official" stroke="#22C55E" strokeWidth={2} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </motion.div>
-
+            <div className="grid md:grid-cols-1 gap-6">
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 whileInView={{ opacity: 1, y: 0 }}
@@ -437,6 +424,7 @@ function CredibilityResultPage() {
           </div>
         </div>
       </main>
+      )}
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { motion } from "motion/react";
 import { useNavigate } from "react-router";
+import { useAuth } from "../../context/AuthContext";
 import { ScrollProgress } from "../components/ScrollProgress";
 import { HeroSection } from "../components/HeroSection";
 import { StorytellingParallax } from "../components/StorytellingParallax";
@@ -12,6 +13,7 @@ import { FinalTransition } from "../components/FinalTransition";
 
 function LandingPage() {
   const navigate = useNavigate();
+  const { user, logout } = useAuth();
 
   return (
     <div className="min-h-screen bg-black text-white overflow-x-hidden">
@@ -71,6 +73,21 @@ function LandingPage() {
             >
               Verify Claim
             </button>
+            {user ? (
+              <button
+                onClick={() => { logout(); }}
+                className="px-4 py-2 text-sm text-slate-400 hover:text-white transition-colors"
+              >
+                Logout
+              </button>
+            ) : (
+              <button
+                onClick={() => navigate("/login")}
+                className="px-4 py-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-sm font-semibold rounded-lg hover:bg-emerald-500/20 transition-colors"
+              >
+                Sign In
+              </button>
+            )}
           </nav>
         </div>
       </motion.header>

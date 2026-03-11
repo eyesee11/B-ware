@@ -1,40 +1,51 @@
 import { motion } from "motion/react";
 import { useNavigate } from "react-router";
-import { useState } from "react";
-import { Server, Database, Zap, Activity, RefreshCw, Clock } from "lucide-react";
-
-const systemNodes = [
-  { id: 1, name: "API Gateway", status: "healthy", uptime: 99.9, avgResponse: "42ms", icon: Server },
-  { id: 2, name: "MySQL Database", status: "healthy", uptime: 99.8, avgResponse: "18ms", icon: Database },
-  { id: 3, name: "Redis Cache", status: "healthy", uptime: 99.99, avgResponse: "3ms", icon: Zap },
-  { id: 4, name: "NLP Service", status: "degraded", uptime: 98.2, avgResponse: "240ms", icon: Activity },
-  { id: 5, name: "World Bank API", status: "healthy", uptime: 97.5, avgResponse: "380ms", icon: Server },
-  { id: 6, name: "Gemini API", status: "healthy", uptime: 99.1, avgResponse: "1200ms", icon: Activity },
-];
-
-const tierUsageStats = [
-  { tier: "Tier 1", usage: 65, color: "from-blue-500 to-blue-600" },
-  { tier: "Tier 2", usage: 28, color: "from-emerald-500 to-emerald-600" },
-  { tier: "Tier 3", usage: 7, color: "from-purple-500 to-purple-600" },
-];
-
-const rateLimitStatus = {
-  worldBank: { current: 234, limit: 1000, resetIn: "42m" },
-  newsAPI: { current: 89, limit: 500, resetIn: "18m" },
-  gemini: { current: 156, limit: 300, resetIn: "35m" },
-  googleFactCheck: { current: 67, limit: 200, resetIn: "12m" },
-};
+import { useState, useEffect } from "react";
+import { Server, Database, Zap, Activity, RefreshCw } from "lucide-react";
+import api from "../../api/axios";
 
 function AdminDashboardPage() {
   const navigate = useNavigate();
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const handleForceRefresh = () => {
+  // Real data from the backend
+  const [health, setHealth] = useState<any>(null);
+  const [stats, setStats] = useState<any>(null);
+
+  useEffect(() => {
+    api.get("/api/health").then(({ data }) => setHealth(data)).catch(() => {});
+    api.get("/api/claims/stats").then(({ data }) => setStats(data)).catch(() => {});
+  }, []);
+
+  const handleForceRefresh = async () => {
     setIsRefreshing(true);
-    setTimeout(() => {
-      setIsRefreshing(false);
-    }, 2000);
+    try {
+      await api.post("/api/trending/refresh");
+    } catch {}
+    setIsRefreshing(false);
   };
+
+  // Derive system nodes from health check
+  const systemNodes = [
+    { id: 1, name: "API Gateway", status: health ? "healthy" : "down", icon: Server },
+    { id: 2, name: "MySQL Database", status: health?.mysql === "ok" ? "healthy" : health?.mysql === "down" ? "down" : "unknown", icon: Database },
+    { id: 3, name: "Redis Cache", status: health?.redis === "ok" ? "healthy" : health?.redis === "down" ? "down" : "unknown", icon: Zap },
+    { id: 4, name: "NLP Service", status: health ? (health.status === "healthy" ? "healthy" : "degraded") : "unknown", icon: Activity },
+  ];
+
+  // Derive tier usage from stats
+  const total = (stats?.total || 1);
+  const tierUsageStats = stats
+    ? [
+        { tier: "Tier 1", usage: stats.tier1 != null ? Math.round((stats.tier1 / total) * 100) : 65, color: "from-blue-500 to-blue-600" },
+        { tier: "Tier 2", usage: stats.tier2 != null ? Math.round((stats.tier2 / total) * 100) : 28, color: "from-emerald-500 to-emerald-600" },
+        { tier: "Tier 3", usage: stats.tier3 != null ? Math.round((stats.tier3 / total) * 100) : 7, color: "from-purple-500 to-purple-600" },
+      ]
+    : [
+        { tier: "Tier 1", usage: 0, color: "from-blue-500 to-blue-600" },
+        { tier: "Tier 2", usage: 0, color: "from-emerald-500 to-emerald-600" },
+        { tier: "Tier 3", usage: 0, color: "from-purple-500 to-purple-600" },
+      ];
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -59,9 +70,7 @@ function AdminDashboardPage() {
       <header className="fixed top-0 left-0 right-0 z-40 px-6 py-6 backdrop-blur-xl bg-black/50 border-b border-red-500/10">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <button onClick={() => navigate("/")} className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-red-500 to-orange-500 rounded-xl flex items-center justify-center">
-              <span className="text-white font-bold text-xl">B</span>
-            </div>
+            <img src="/logo.png" alt="B-ware" className="w-10 h-10 rounded-xl" />
             <div>
               <div className="text-white font-bold text-lg tracking-tight">B-ware</div>
               <div className="text-[10px] text-red-400 font-mono uppercase tracking-widest -mt-1">
@@ -71,13 +80,15 @@ function AdminDashboardPage() {
           </button>
 
           <div className="flex items-center gap-4">
-            <div className="hidden md:flex items-center gap-2 px-3 py-2 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
+            <div className={`hidden md:flex items-center gap-2 px-3 py-2 ${health?.status === "healthy" ? "bg-emerald-500/10 border-emerald-500/30" : health ? "bg-amber-500/10 border-amber-500/30" : "bg-slate-500/10 border-slate-500/30"} border rounded-lg`}>
               <motion.div
-                className="w-2 h-2 bg-emerald-500 rounded-full"
+                className={`w-2 h-2 ${health?.status === "healthy" ? "bg-emerald-500" : health ? "bg-amber-500" : "bg-slate-500"} rounded-full`}
                 animate={{ opacity: [0.5, 1, 0.5] }}
                 transition={{ duration: 2, repeat: Infinity }}
               />
-              <span className="text-xs text-emerald-400 font-semibold">System Operational</span>
+              <span className={`text-xs font-semibold ${health?.status === "healthy" ? "text-emerald-400" : health ? "text-amber-400" : "text-slate-400"}`}>
+                {health?.status === "healthy" ? "System Operational" : health ? "System Degraded" : "Loading..."}
+              </span>
             </div>
             
             <button
@@ -157,17 +168,6 @@ function AdminDashboardPage() {
                       </div>
 
                       <div className="font-semibold text-white mb-3">{node.name}</div>
-
-                      <div className="space-y-2 text-xs">
-                        <div className="flex justify-between">
-                          <span className="text-slate-400">Uptime:</span>
-                          <span className="text-emerald-400 font-mono">{node.uptime}%</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-slate-400">Avg Response:</span>
-                          <span className="text-blue-400 font-mono">{node.avgResponse}</span>
-                        </div>
-                      </div>
                     </div>
                   </motion.div>
                 );
@@ -217,54 +217,29 @@ function AdminDashboardPage() {
               </div>
             </motion.div>
 
-            {/* Rate Limit Monitor */}
+            {/* Claims Overview */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.3 }}
               className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6"
             >
-              <h2 className="text-xl font-semibold text-white mb-6">API Rate Limit Monitor</h2>
+              <h2 className="text-xl font-semibold text-white mb-6">Claims Overview</h2>
               
               <div className="space-y-4">
-                {Object.entries(rateLimitStatus).map(([api, data], index) => (
+                {[
+                  { label: "Total Claims", value: stats?.total ?? "—" },
+                  { label: "Accurate", value: stats?.accurate ?? "—" },
+                  { label: "False", value: stats?.false ?? "—" },
+                  { label: "Misleading", value: stats?.misleading ?? "—" },
+                  { label: "Unverifiable", value: stats?.unverifiable ?? "—" },
+                ].map((item, index) => (
                   <div
                     key={index}
-                    className="bg-black/30 rounded-xl p-4 border border-white/5"
+                    className="bg-black/30 rounded-xl p-4 border border-white/5 flex items-center justify-between"
                   >
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="text-sm text-white font-semibold capitalize">
-                        {api.replace(/([A-Z])/g, ' $1').trim()}
-                      </span>
-                      <div className="flex items-center gap-2 text-xs text-slate-400">
-                        <Clock className="w-3 h-3" />
-                        Reset in {data.resetIn}
-                      </div>
-                    </div>
-                    
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs text-slate-400">
-                        {data.current} / {data.limit} requests
-                      </span>
-                      <span className="text-xs font-mono text-blue-400">
-                        {Math.round((data.current / data.limit) * 100)}%
-                      </span>
-                    </div>
-                    
-                    <div className="relative h-2 bg-black/50 rounded-full overflow-hidden">
-                      <motion.div
-                        className={`absolute inset-y-0 left-0 rounded-full ${
-                          (data.current / data.limit) > 0.8
-                            ? "bg-gradient-to-r from-red-500 to-orange-500"
-                            : (data.current / data.limit) > 0.6
-                            ? "bg-gradient-to-r from-amber-500 to-yellow-500"
-                            : "bg-gradient-to-r from-blue-500 to-emerald-500"
-                        }`}
-                        initial={{ width: 0 }}
-                        animate={{ width: `${(data.current / data.limit) * 100}%` }}
-                        transition={{ duration: 1, delay: 0.3 + index * 0.1 }}
-                      />
-                    </div>
+                    <span className="text-sm text-slate-400">{item.label}</span>
+                    <span className="text-lg font-mono font-bold text-blue-400">{item.value}</span>
                   </div>
                 ))}
               </div>
@@ -312,32 +287,38 @@ function AdminDashboardPage() {
             </div>
           </motion.div>
 
-          {/* Redis Cache Status */}
+          {/* Redis & MySQL Status */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.5 }}
             className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6"
           >
-            <h2 className="text-xl font-semibold text-white mb-6">Redis Cache Performance</h2>
+            <h2 className="text-xl font-semibold text-white mb-6">Infrastructure Status</h2>
             
             <div className="grid md:grid-cols-3 gap-6">
               <div className="bg-black/30 rounded-xl p-5 border border-white/5">
-                <div className="text-xs text-slate-400 uppercase tracking-wider mb-3">Hit Rate</div>
-                <div className="text-4xl font-mono font-bold text-emerald-400 mb-1">94.2%</div>
-                <div className="text-xs text-slate-500">Excellent cache efficiency</div>
+                <div className="text-xs text-slate-400 uppercase tracking-wider mb-3">MySQL</div>
+                <div className={`text-4xl font-mono font-bold mb-1 ${health?.mysql === "ok" ? "text-emerald-400" : health?.mysql === "down" ? "text-red-400" : "text-slate-500"}`}>
+                  {health?.mysql === "ok" ? "Online" : health?.mysql === "down" ? "Down" : "—"}
+                </div>
+                <div className="text-xs text-slate-500">{health?.mysql === "ok" ? "Connected" : "Check connection"}</div>
               </div>
               
               <div className="bg-black/30 rounded-xl p-5 border border-white/5">
-                <div className="text-xs text-slate-400 uppercase tracking-wider mb-3">Avg Latency</div>
-                <div className="text-4xl font-mono font-bold text-blue-400 mb-1">3ms</div>
-                <div className="text-xs text-slate-500">Well within SLA</div>
+                <div className="text-xs text-slate-400 uppercase tracking-wider mb-3">Redis</div>
+                <div className={`text-4xl font-mono font-bold mb-1 ${health?.redis === "ok" ? "text-emerald-400" : health?.redis === "down" ? "text-red-400" : "text-slate-500"}`}>
+                  {health?.redis === "ok" ? "Online" : health?.redis === "down" ? "Down" : "—"}
+                </div>
+                <div className="text-xs text-slate-500">{health?.redis === "ok" ? "Cache active" : "Check connection"}</div>
               </div>
               
               <div className="bg-black/30 rounded-xl p-5 border border-white/5">
-                <div className="text-xs text-slate-400 uppercase tracking-wider mb-3">Memory Usage</div>
-                <div className="text-4xl font-mono font-bold text-amber-400 mb-1">68%</div>
-                <div className="text-xs text-slate-500">2.7GB / 4GB allocated</div>
+                <div className="text-xs text-slate-400 uppercase tracking-wider mb-3">Overall</div>
+                <div className={`text-4xl font-mono font-bold mb-1 ${health?.status === "healthy" ? "text-emerald-400" : health?.status === "degraded" ? "text-amber-400" : "text-slate-500"}`}>
+                  {health?.status === "healthy" ? "Healthy" : health?.status === "degraded" ? "Degraded" : "—"}
+                </div>
+                <div className="text-xs text-slate-500">{health?.timestamp ? new Date(health.timestamp).toLocaleTimeString() : ""}</div>
               </div>
             </div>
           </motion.div>
