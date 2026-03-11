@@ -3,6 +3,7 @@ import { useNavigate } from "react-router";
 import { useState, useEffect } from "react";
 import { BarChart3, TrendingUp, AlertTriangle, CheckCircle, Activity } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ScatterChart, Scatter } from "recharts";
+import api from "../../api/axios";
 
 const navItems = [
   { id: "overview", label: "Overview", icon: BarChart3 },
@@ -12,61 +13,89 @@ const navItems = [
   { id: "sources", label: "Source Credibility", icon: CheckCircle },
 ];
 
-const overviewStats = [
-  { label: "Total Claims Verified", value: 1247, icon: BarChart3, color: "from-blue-500 to-blue-600" },
-  { label: "Accuracy Rate", value: 42, suffix: "%", icon: CheckCircle, color: "from-emerald-500 to-emerald-600" },
-  { label: "Misleading %", value: 31, suffix: "%", icon: AlertTriangle, color: "from-amber-500 to-amber-600" },
-  { label: "False %", value: 18, suffix: "%", icon: AlertTriangle, color: "from-red-500 to-red-600" },
-  { label: "Avg Confidence", value: 0.84, icon: Activity, color: "from-purple-500 to-purple-600" },
-];
-
-const timelineData = [
-  { month: "Jan", accurate: 45, misleading: 28, false: 12 },
-  { month: "Feb", accurate: 52, misleading: 31, false: 15 },
-  { month: "Mar", accurate: 48, misleading: 35, false: 18 },
-  { month: "Apr", accurate: 61, misleading: 29, false: 14 },
-  { month: "May", accurate: 58, misleading: 33, false: 20 },
-  { month: "Jun", accurate: 65, misleading: 28, false: 16 },
-];
-
-const scatterData = Array.from({ length: 50 }, () => ({
-  error: Math.random() * 100,
-  confidence: Math.random(),
-}));
-
-const sourceLeaderboard = [
-  { source: "World Bank", accuracy: 98, verifications: 456 },
-  { source: "Reuters", accuracy: 94, verifications: 234 },
-  { source: "IMF", accuracy: 92, verifications: 189 },
-  { source: "Economic Times", accuracy: 87, verifications: 312 },
-  { source: "NewsAPI", accuracy: 81, verifications: 567 },
-];
-
 function TrendAnalyticsPage() {
   const navigate = useNavigate();
   const [activeNav, setActiveNav] = useState("overview");
-  const [animatedStats, setAnimatedStats] = useState(overviewStats.map(() => 0));
+
+  // Real data from the API
+  const [overviewStats, setOverviewStats] = useState<any[]>([]);
+  const [timelineData, setTimelineData] = useState<any[]>([]);
+  const [scatterData, setScatterData] = useState<any[]>([]);
+  const [sourceLeaderboard, setSourceLeaderboard] = useState<any[]>([]);
+  const [animatedStats, setAnimatedStats] = useState<number[]>([]);
 
   useEffect(() => {
-    overviewStats.forEach((stat, index) => {
-      setTimeout(() => {
-        const target = typeof stat.value === "number" ? stat.value : 0;
-        let current = 0;
-        const increment = target / 30;
-        const timer = setInterval(() => {
-          current += increment;
-          if (current >= target) {
-            current = target;
-            clearInterval(timer);
-          }
-          setAnimatedStats((prev) => {
-            const newStats = [...prev];
-            newStats[index] = current;
-            return newStats;
-          });
-        }, 20);
-      }, index * 100);
-    });
+    // Fetch aggregate stats
+    api.get("/api/claims/stats").then(({ data }) => {
+      const total = data.total || 1;
+      const stats = [
+        { label: "Total Claims Verified", value: data.total ?? 0, icon: BarChart3, color: "from-blue-500 to-blue-600" },
+        { label: "Accuracy Rate", value: Math.round(((data.accurate ?? 0) / total) * 100), suffix: "%", icon: CheckCircle, color: "from-emerald-500 to-emerald-600" },
+        { label: "Misleading %", value: Math.round(((data.misleading ?? 0) / total) * 100), suffix: "%", icon: AlertTriangle, color: "from-amber-500 to-amber-600" },
+        { label: "False %", value: Math.round(((data.false ?? 0) / total) * 100), suffix: "%", icon: AlertTriangle, color: "from-red-500 to-red-600" },
+        { label: "Avg Confidence", value: data.avg_confidence ?? 0, icon: Activity, color: "from-purple-500 to-purple-600" },
+      ];
+      setOverviewStats(stats);
+      // animate
+      setAnimatedStats(stats.map(() => 0));
+      stats.forEach((stat, index) => {
+        setTimeout(() => {
+          const target = stat.value;
+          let current = 0;
+          const increment = target / 30;
+          const timer = setInterval(() => {
+            current += increment;
+            if (current >= target) {
+              current = target;
+              clearInterval(timer);
+            }
+            setAnimatedStats((prev) => {
+              const ns = [...prev];
+              ns[index] = current;
+              return ns;
+            });
+          }, 20);
+        }, index * 100);
+      });
+    }).catch(() => {});
+
+    // Fetch claim history for charts
+    api.get("/api/claims?limit=50").then(({ data }) => {
+      const claims = data.claims ?? data ?? [];
+      // derive timeline by month
+      const byMonth: Record<string, { accurate: number; misleading: number; false: number }> = {};
+      claims.forEach((c: any) => {
+        const d = new Date(c.created_at);
+        const key = d.toLocaleString("en-US", { month: "short" });
+        if (!byMonth[key]) byMonth[key] = { accurate: 0, misleading: 0, false: 0 };
+        const v = (c.verdict ?? "").toLowerCase();
+        if (v === "accurate") byMonth[key].accurate++;
+        else if (v === "misleading") byMonth[key].misleading++;
+        else if (v === "false") byMonth[key].false++;
+      });
+      setTimelineData(Object.entries(byMonth).map(([month, val]) => ({ month, ...val })));
+
+      // scatter data
+      setScatterData(
+        claims
+          .filter((c: any) => c.percentage_error != null && c.confidence != null)
+          .map((c: any) => ({ error: c.percentage_error, confidence: c.confidence }))
+      );
+    }).catch(() => {});
+
+    // Fetch source leaderboard
+    api.get("/api/trending/sources").then(({ data }) => {
+      const sources = data.sources ?? data ?? [];
+      setSourceLeaderboard(
+        sources.map((s: any) => ({
+          source: s.source_name,
+          accuracy: s.total_claims
+            ? Math.round((s.accurate_count / s.total_claims) * 100)
+            : 0,
+          verifications: s.total_claims,
+        }))
+      );
+    }).catch(() => {});
   }, []);
 
   return (
@@ -82,9 +111,7 @@ function TrendAnalyticsPage() {
       {/* Sidebar */}
       <aside className="fixed left-0 top-0 h-full w-64 bg-black/50 backdrop-blur-xl border-r border-white/5 p-6 hidden lg:block">
         <button onClick={() => navigate("/")} className="flex items-center gap-3 mb-12">
-          <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-emerald-500 rounded-xl flex items-center justify-center">
-            <span className="text-white font-bold text-xl">B</span>
-          </div>
+          <img src="/logo.png" alt="B-ware logo" className="w-10 h-10 rounded-xl object-contain" />
           <div>
             <div className="text-white font-bold text-lg tracking-tight">B-ware</div>
             <div className="text-[10px] text-emerald-400 font-mono uppercase tracking-widest -mt-1">

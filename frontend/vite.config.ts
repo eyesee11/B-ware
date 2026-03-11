@@ -19,4 +19,14 @@ export default defineConfig({
 
   // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
   assetsInclude: ['**/*.svg', '**/*.csv'],
+  server: {
+    port: 3000,
+    proxy: {
+      '/api': {
+        target: 'https://b-ware-sand.vercel.app',
+        changeOrigin: true,
+        secure: true,
+      },
+    },
+  },
 })

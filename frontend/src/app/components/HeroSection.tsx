@@ -137,7 +137,7 @@ export function HeroSection() {
           <div className="flex flex-col sm:flex-row items-start gap-4">
             <button
               className="group relative px-8 py-4 bg-transparent text-white font-semibold rounded-xl overflow-hidden transition-all duration-300"
-              onClick={() => navigate("/platform")}
+              onClick={() => navigate("/login")}
             >
               <span className="relative z-10 flex items-center gap-2">
                 Enter Platform
