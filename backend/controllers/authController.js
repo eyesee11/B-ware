@@ -78,12 +78,15 @@ exports.register = async (req, res) => {
       [name, email, hash],
     );
 
-    const user = {
-      id: result.insertId,
-      name,
-      email,
-      role: "user",
-    };
+    // fetch the full user record from DB (gets created_at, role default, etc.)
+    const [rows] = await db.query(
+      "SELECT id, name, email, role, created_at FROM users WHERE id = ?",
+      [result.insertId],
+    );
+    const user = rows[0];
+
+    // store session in redis (matching login behavior)
+    await redis.set(`session:${user.id}`, "1", "EX", 7 * 24 * 60 * 60);
 
     // return token and user data
     res.status(201).json({
