@@ -100,57 +100,52 @@ export const authApi = {
 };
 
 /**
- * Claim verification API endpoints
+ * Claims verification API endpoints
  */
-export const claimApi = {
-  submitClaim: async (claim: string, source: string, token?: string) => {
+export const claimsApi = {
+  verify: async (text: string) => {
     return apiCall('/claims/verify', {
       method: 'POST',
-      body: JSON.stringify({ claim, source }),
-      token,
+      body: JSON.stringify({ text }),
     });
   },
 
-  submitQuick: async (claim: string, source: string, token?: string) => {
+  quick: async (text: string) => {
     return apiCall('/claims/quick', {
       method: 'POST',
-      body: JSON.stringify({ claim, source }),
-      token,
+      body: JSON.stringify({ text }),
     });
   },
 
-  submitDeep: async (claim: string, source: string, token?: string) => {
+  deep: async (text: string) => {
     return apiCall('/claims/deep', {
       method: 'POST',
-      body: JSON.stringify({ claim, source }),
-      token,
+      body: JSON.stringify({ text }),
     });
   },
 
-  getStats: async (token?: string) => {
-    return apiCall('/claims/stats', {
+  getHistory: async (page: number = 1, limit: number = 20) => {
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+    return apiCall(`/claims?${params}`, {
       method: 'GET',
-      token,
     });
   },
 
-  getUserClaims: async (token?: string) => {
-    return apiCall('/claims', {
-      method: 'GET',
-      token,
-    });
-  },
-
-  getClaimById: async (id: string, token?: string) => {
+  getById: async (id: string | number) => {
     return apiCall(`/claims/${id}`, {
       method: 'GET',
-      token,
+    });
+  },
+
+  getStats: async () => {
+    return apiCall('/claims/stats', {
+      method: 'GET',
     });
   },
 };
 
 /**
- * Trending topics API endpoints
+ * Trending stories API endpoints
  */
 export const trendingApi = {
   getTrending: async (filter: string = 'all', limit: number = 20) => {
