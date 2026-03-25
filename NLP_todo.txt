@@ -1,0 +1,38 @@
+================================================================================
+B-ware — NLP SERVICE: PROJECT PROGRESS SUMMARY
+Last reviewed: March 5, 2026
+================================================================================
+
+SUMMARY:
+  [Done] All planned features, robustness, and quality improvements are COMPLETE.
+  [Done] All 4 priority groups (1–4) and their items are checked off.
+  [Done] Test suite: 86/86 passing, 0 failures.
+  [Done] All endpoints, extraction logic, claim detection, and verification tiers are implemented and tested.
+  [Done] CORS, error handling, schema updates, README, .env.example, input sanitization, timeout guard, health check, structured logging, result cache, rate limiting, fiscal year/word-form/regex/confidence/country/value_type improvements, /analyze response, Dockerfile, OpenAPI, source diversity, language detection, and expanded test coverage are all done.
+  ℹ️ Future plans: Upgrade BART model to fine-tuned DeBERTa after ~1000 real user claims; add Hindi extraction patterns for Devanagari numerals (not yet actionable).
+
+================================================================================
+HUGGINGFACE MODEL NOTES
+================================================================================
+
+  MODEL IN USE: facebook/bart-large-mnli (~1.6 GB)
+  STATUS:       [Done] Already cached on current dev machine — Tier 2 runs live.
+
+  IF CACHE IS EVER CLEARED:
+    Option A — Re-download:
+      python -c "from transformers import pipeline; pipeline('zero-shot-classification', model='facebook/bart-large-mnli')"
+    Option B — Copy cache from another machine:
+      Copy: C:\Users\<you>\.cache\huggingface\hub\
+      To the same path on this machine.
+    Option C — Point to local folder:
+      In tier2_nli.py, change:  MODEL_NAME = "D:/models/bart-large-mnli"
+
+  FUTURE UPGRADE (after ~1000 real user claims collected):
+    - Replace facebook/bart-large-mnli with a fine-tuned model:
+        microsoft/deberta-v3-base → fine-tune on real B-ware claims
+        Framework: HuggingFace Trainer API
+        Hardware: Google Colab free GPU (T4) is sufficient
+    - Training datasets to combine with real data:
+        LIAR   — 12,800 labeled political claims
+        FEVER  — 185,000 claims vs Wikipedia
+        ClaimBuster — US presidential debate claims
