@@ -155,55 +155,7 @@ export const claimsApi = {
   },
 };
 
-/**
- * Claim verification API endpoints
- */
-export const claimApi = {
-  submitClaim: async (claim: string, source: string, token?: string) => {
-    return apiCall('/claims/verify', {
-      method: 'POST',
-      body: JSON.stringify({ claim, source }),
-      token,
-    });
-  },
 
-  submitQuick: async (claim: string, source: string, token?: string) => {
-    return apiCall('/claims/quick', {
-      method: 'POST',
-      body: JSON.stringify({ claim, source }),
-      token,
-    });
-  },
-
-  submitDeep: async (claim: string, source: string, token?: string) => {
-    return apiCall('/claims/deep', {
-      method: 'POST',
-      body: JSON.stringify({ claim, source }),
-      token,
-    });
-  },
-
-  getStats: async (token?: string) => {
-    return apiCall('/claims/stats', {
-      method: 'GET',
-      token,
-    });
-  },
-
-  getUserClaims: async (token?: string) => {
-    return apiCall('/claims', {
-      method: 'GET',
-      token,
-    });
-  },
-
-  getClaimById: async (id: string, token?: string) => {
-    return apiCall(`/claims/${id}`, {
-      method: 'GET',
-      token,
-    });
-  },
-};
 
 /**
  * Trending topics API endpoints
