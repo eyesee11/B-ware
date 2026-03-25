@@ -37,6 +37,7 @@ function TrendingContent() {
     if (dangerScore >= 50) return { label: 'Moderate Risk', color: 'text-yellow-600', border: 'bg-yellow-500' };
     return { label: 'Low Risk', color: 'text-green-600', border: 'bg-green-500' };
   };
+  return (
     <main className="ml-64 pt-16 min-h-screen bg-background">
       <div className="max-w-7xl mx-auto px-12 py-16">
 
