@@ -1,6 +1,5 @@
 ---
 title: B-ware NLP Service
-emoji: 🔍
 colorFrom: blue
 colorTo: indigo
 sdk: docker
