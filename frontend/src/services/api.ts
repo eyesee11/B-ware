@@ -3,7 +3,18 @@
  * Automatically injects JWT token from localStorage
  */
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:5000/api';
+// Hardcoded to deployed backend for all environments
+const API_BASE_URL = 'https://b-ware-sand.vercel.app/api';
+
+// DEBUG: Log all environment variables
+if (typeof window !== 'undefined') {
+  console.log('All process.env:', process.env);
+}
+
+// Debug: Log the API base URL to verify it's correct
+if (typeof window !== 'undefined') {
+  console.log('API_BASE_URL set to:', API_BASE_URL);
+}
 
 interface FetchOptions extends RequestInit {
   token?: string;
