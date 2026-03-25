@@ -506,6 +506,8 @@ app.add_middleware(
         "http://localhost:3000",
         "http://localhost:5000",
         "http://localhost:5500",
+        "https://b-ware-sand.vercel.app",  # Vercel staging URL for backend
+        "https://b-ware-front.vercel.app", # Vercel staging URL for frontend
     ],
     allow_credentials=True,
     allow_methods=["*"],

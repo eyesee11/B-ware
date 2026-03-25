@@ -58,8 +58,8 @@ async function runVerify(req, res, endpoint) {
   try {
     // first insert claim in database with pending status
     const [ins] = await db.query(
-      "INSERT INTO claims (user_id, original_text, claim_hash, status) VALUES (?, ?, ?, ?)",
-      [userId, text, hash, "pending"],
+      "INSERT INTO claims (user_id, original_text, status) VALUES (?, ?, ?)",
+      [userId, text, "pending"],
     );
 
     claimId = ins.insertId;
@@ -98,8 +98,8 @@ async function runVerify(req, res, endpoint) {
     await db.query(
       `INSERT INTO verification_log
        (claim_id, official_value, claimed_value, difference, percentage_error,
-        verdict, tier_used, tiers_run, confidence, explanation, evidence_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        verdict, tier_used, tiers_run, confidence, explanation)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         claimId,
         officialVal,
@@ -111,7 +111,6 @@ async function runVerify(req, res, endpoint) {
         tiersRun,
         confidence,
         explanation,
-        evidenceJson,
       ],
     );
 
@@ -122,8 +121,6 @@ async function runVerify(req, res, endpoint) {
         extracted_value   = ?,
         extracted_year    = ?,
         credibility_score = ?,
-        verdict           = ?,
-        confidence        = ?,
         status            = 'verified'
       WHERE id = ?`,
       [
@@ -131,8 +128,6 @@ async function runVerify(req, res, endpoint) {
         claimedVal,
         year,
         confidence ? confidence * 100 : null,
-        verdict,
-        confidence,
         claimId,
       ],
     );
@@ -205,7 +200,7 @@ exports.getUserClaims = async (req, res) => {
   try {
     const [rows] = await db.query(
       `SELECT id, original_text, extracted_metric, extracted_value,
-              extracted_year, verdict, confidence, status, created_at
+              extracted_year, credibility_score, status, created_at
        FROM claims
        WHERE user_id = ?
        ORDER BY created_at DESC
@@ -240,7 +235,7 @@ exports.getClaimById = async (req, res) => {
       `SELECT c.*,
               v.official_value, v.claimed_value, v.difference, v.percentage_error,
               v.tier_used, v.tiers_run, v.confidence AS vlog_confidence,
-              v.evidence_json, v.explanation, v.verified_at
+              v.explanation, v.verified_at
        FROM claims c
        LEFT JOIN verification_log v ON v.claim_id = c.id
        WHERE c.id = ? AND c.user_id = ?`,
@@ -287,17 +282,19 @@ exports.getStats = async (req, res) => {
 
   try {
     const [verdictRows] = await db.query(
-      `SELECT verdict, COUNT(*) as count
-       FROM claims
-       WHERE user_id = ? AND status = 'verified'
-       GROUP BY verdict`,
+      `SELECT v.verdict, COUNT(*) as count
+       FROM claims c
+       JOIN verification_log v ON v.claim_id = c.id
+       WHERE c.user_id = ?
+       GROUP BY v.verdict`,
       [req.user.id],
     );
 
     const [[{ total, avg_conf }]] = await db.query(
-      `SELECT COUNT(*) as total, AVG(confidence) as avg_conf
-       FROM claims
-       WHERE user_id = ? AND status = 'verified'`,
+      `SELECT COUNT(*) as total, AVG(v.confidence) as avg_conf
+       FROM claims c
+       JOIN verification_log v ON v.claim_id = c.id
+       WHERE c.user_id = ?`,
       [req.user.id],
     );
 
@@ -315,7 +312,7 @@ exports.getStats = async (req, res) => {
 
     const stats = {
       total: total || 0,
-      avg_confidence: Number((avg_conf || 0).toFixed(2)),
+      avg_confidence: Number(parseFloat(avg_conf || 0).toFixed(2)),
       ...counts,
     };
 
