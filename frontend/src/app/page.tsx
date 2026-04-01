@@ -30,9 +30,11 @@ export default function LandingPage() {
                 >
                   Explore the Engine
                 </Link>
-                <button className="border border-outline-variant px-10 py-4 font-bold uppercase text-xs tracking-[0.2em] hover:bg-surface-container-low transition-colors">
-                  View Methodology
-                </button>
+                <div className="border border-outline-variant px-10 py-4 font-bold uppercase text-xs tracking-[0.2em] hover:bg-surface-container-low transition-colors">
+                  <Link href="#case-study">
+                    View Methodology
+                  </Link>
+                </div>
               </div>
             </div>
 
