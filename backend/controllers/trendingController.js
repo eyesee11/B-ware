@@ -47,8 +47,26 @@ function calcDangerScore(verdict, confidence, publishedAt,sourceCount=1) {
 exports.getTrending = async (req, res) => {
   const limit = Math.min(50, parseInt(req.query.limit) || 20);
   const filter = req.query.verdict;
+  let sources = req.query.sources ? req.query.sources.split(",").map(s => s.trim()) : null;
 
-  const cacheKey = `trending_feed:${filter || "all"}`;
+  // If user is authenticated and no sources specified, get their preferences
+  if (req.user && !sources) {
+    try {
+      const [outlets] = await db.query(
+        "SELECT outlet_name FROM user_outlet_preferences WHERE user_id = ?",
+        [req.user.id]
+      );
+      if (outlets.length > 0) {
+        sources = outlets.map(o => o.outlet_name);
+      }
+    } catch (err) {
+      console.log("Could not fetch user outlets, using all sources");
+    }
+  }
+
+  // Build cache key including sources filter
+  const sourcesKey = sources ? sources.sort().join(",") : "all";
+  const cacheKey = `trending_feed:${filter || "all"}:${sourcesKey}`;
 
   // check redis cache
   let cached = null;
@@ -75,6 +93,13 @@ exports.getTrending = async (req, res) => {
       queryParams.push(filter);
     }
 
+    // optional filter by sources
+    if (sources && sources.length > 0) {
+      const placeholders = sources.map(() => "?").join(",");
+      where += ` AND source_name IN (${placeholders})`;
+      queryParams.push(...sources);
+    }
+
     queryParams.push(limit);
 
     const [rows] = await db.query(
@@ -97,6 +122,7 @@ exports.getTrending = async (req, res) => {
       stories: rows,
       last_updated,
       total: rows.length,
+      sources_filter: sources || null,
     };
 
     // cache for 5 minutes
@@ -186,16 +212,30 @@ exports.refreshTrending = async (req, res) => {
 
 // main function which fetches news and verifies them
 async function runTrendingRefresh() {
+  // Map of outlet names to their NewsAPI domain(s)
+  const outletDomains = {
+    "Bloomberg": "bloomberg.com",
+    "The Guardian": "theguardian.com",
+    "BBC": "bbc.co.uk,bbc.com",
+    "Reuters": "reuters.com",
+    "Wall Street Journal": "wsj.com",
+    "Financial Times": "ft.com",
+  };
+
   //inner function to fetch news from NewsAPI
   async function fetchFromNewsAPI() {
     const articles = [];
 
     if (process.env.NEWS_API_KEY) {
       try {
+        // Build domains string from outlet mapping
+        const domains = Object.values(outletDomains).join(",");
+        
         const { data } = await axios.get("https://newsapi.org/v2/everything", {
           params: {
-            q: "India economy GDP inflation unemployment",
+            q: "India AND (economy OR GDP OR inflation OR unemployment)",
             language: "en",
+            domains: domains,
             sortBy: "publishedAt",
             pageSize: 20,
             apiKey: process.env.NEWS_API_KEY,
@@ -282,7 +322,7 @@ async function runTrendingRefresh() {
   }
 
   let processed = 0;
-
+  console.log(`Articles from NewsAPI+FactCheck: ${articles.length}, Fresh: ${fresh.length}`);
   // process each new article
   for (const article of fresh) {
     try {
@@ -303,8 +343,8 @@ async function runTrendingRefresh() {
         text: top.sentence,
       });
 
-      if (!["false", "misleading"].includes(result.verdict)) continue;
-
+      // allow all verdicts to be saved, skip only if it failed completely
+      if (!result.verdict) continue;
       const score = calcDangerScore(
         result.verdict,
         result.confidence,
@@ -345,6 +385,7 @@ async function runTrendingRefresh() {
     }
   }
 
+  console.log(`Processed: ${processed} out of ${fresh.length} fresh articles.`);
   // deactivate stories older than 48 hours
   await db.query(
     "UPDATE trending_stories SET is_active = 0 WHERE fetched_at < DATE_SUB(NOW(), INTERVAL 48 HOUR)",

@@ -1,10 +1,12 @@
 const router      = require('express').Router();
 const claims      = require('../controllers/claimController');
 const requireAuth = require('../middleware/auth');
+const optionalAuth = require('../middleware/optionalAuth');
 
-router.post('/verify', requireAuth, claims.submitClaim);
+router.post('/verify', optionalAuth, claims.submitClaim);
 router.post('/quick',  requireAuth, claims.submitQuick);
 router.post('/deep',   requireAuth, claims.submitDeep);
+router.post('/batch',  requireAuth, claims.submitBatch);
 router.get('/stats',   requireAuth, claims.getStats);  
 router.get('/',        requireAuth, claims.getUserClaims);
 router.get('/:id',     requireAuth, claims.getClaimById);

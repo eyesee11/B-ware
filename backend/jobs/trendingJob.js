@@ -2,8 +2,8 @@ const cron = require("node-cron"); // library to run scheduled jobs
 const redis = require("../config/redis"); 
 const { runTrendingRefresh } = require("../controllers/trendingController"); // function that refreshes trending stories
 
-// schedule cron job to run every 30 minutes
-cron.schedule("*/30 * * * *", async () => {
+// schedule cron job to run once a day (at midnight)
+cron.schedule("0 0 * * *", async () => {
 
   // create a redis lock so multiple cron jobs don't run at the same time
   const lock = await redis.set("trending_job_lock", "1", "NX", "EX", 300);
@@ -26,4 +26,4 @@ cron.schedule("*/30 * * * *", async () => {
   }
 });
 
-console.log("trending cron scheduled (every 30 min)");
+console.log("trending cron scheduled (once a day)");

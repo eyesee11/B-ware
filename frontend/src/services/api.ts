@@ -3,8 +3,10 @@
  * Automatically injects JWT token from localStorage
  */
 
-// Hardcoded to deployed backend for all environments
-const API_BASE_URL = 'https://b-ware-sand.vercel.app/api';
+// Point to localhost for local development, deployed backend for production
+const API_BASE_URL = typeof window !== 'undefined' && window.location.hostname === 'localhost'
+  ? 'http://localhost:5000/api'
+  : 'https://b-ware-sand.vercel.app/api';
 
 // DEBUG: Log all environment variables
 if (typeof window !== 'undefined') {
@@ -114,10 +116,11 @@ export const authApi = {
  * Claims verification API endpoints
  */
 export const claimsApi = {
-  verify: async (text: string) => {
+  verify: async (text: string, token?: string) => {
     return apiCall('/claims/verify', {
       method: 'POST',
       body: JSON.stringify({ text }),
+      token,
     });
   },
 
@@ -132,6 +135,13 @@ export const claimsApi = {
     return apiCall('/claims/deep', {
       method: 'POST',
       body: JSON.stringify({ text }),
+    });
+  },
+
+  batch: async (claims: string[]) => {
+    return apiCall('/claims/batch', {
+      method: 'POST',
+      body: JSON.stringify({ claims }),
     });
   },
 
@@ -161,8 +171,11 @@ export const claimsApi = {
  * Trending topics API endpoints
  */
 export const trendingApi = {
-  getTrending: async (filter: string = 'all', limit: number = 20) => {
+  getTrending: async (filter: string = 'all', limit: number = 20, sources?: string[]) => {
     const params = new URLSearchParams({ filter, limit: String(limit) });
+    if (sources && sources.length > 0) {
+      params.append('sources', sources.join(','));
+    }
     return apiCall(`/trending?${params}`, {
       method: 'GET',
     });
@@ -196,6 +209,32 @@ export const trendingApi = {
   refreshTrending: async (token: string) => {
     return apiCall('/trending/refresh', {
       method: 'POST',
+      token,
+    });
+  },
+};
+
+/**
+ * Outlet/source preferences API endpoints
+ */
+export const outletsApi = {
+  getAvailable: async () => {
+    return apiCall('/outlets/available', {
+      method: 'GET',
+    });
+  },
+
+  getUserOutlets: async (token?: string) => {
+    return apiCall('/outlets', {
+      method: 'GET',
+      token,
+    });
+  },
+
+  updateUserOutlets: async (outlets: string[], token?: string) => {
+    return apiCall('/outlets', {
+      method: 'POST',
+      body: JSON.stringify({ outlets }),
       token,
     });
   },

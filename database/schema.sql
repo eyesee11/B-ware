@@ -15,11 +15,11 @@ CREATE TABLE users (
 
 CREATE TABLE claims (
     id               INT AUTO_INCREMENT PRIMARY KEY,
-    user_id          INT          NOT NULL,
+    user_id          INT          DEFAULT NULL,
     original_text    TEXT         NOT NULL,             -- the raw claim text
     claim_hash       CHAR(64)      DEFAULT NULL,         -- sha256 hex of original_text, used for Redis dedup
     extracted_metric VARCHAR(200) DEFAULT NULL,         -- e.g. "GDP growth rate"
-    extracted_value  DECIMAL(15,2) DEFAULT NULL,        -- e.g. 7.50
+    extracted_value  DECIMAL(20,2) DEFAULT NULL,        -- e.g. 7.50 (supports up to 999,999,999,999,999,999.99)
     extracted_year   INT           DEFAULT NULL,        -- e.g. 2024
     credibility_score DECIMAL(5,2) DEFAULT NULL,        -- 0-100 scale (confidence × 100)
     verdict          ENUM('accurate','misleading','false','unverifiable') DEFAULT NULL,
@@ -37,7 +37,7 @@ CREATE TABLE official_data_cache (
     id           INT AUTO_INCREMENT PRIMARY KEY,
     metric_name  VARCHAR(200) NOT NULL,
     year         INT          NOT NULL,
-    value        DECIMAL(15,2) NOT NULL,
+    value        DECIMAL(20,2) NOT NULL,
     source       VARCHAR(300)  DEFAULT NULL,
     last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
@@ -47,9 +47,9 @@ CREATE TABLE official_data_cache (
 CREATE TABLE verification_log (
     id               INT AUTO_INCREMENT PRIMARY KEY,
     claim_id         INT           NOT NULL,
-    official_value   DECIMAL(15,2) DEFAULT NULL,   -- World Bank official number
-    claimed_value    DECIMAL(15,2) DEFAULT NULL,   -- what the user's claim said
-    difference       DECIMAL(15,2) DEFAULT NULL,   -- abs(official - claimed)
+    official_value   DECIMAL(20,2) DEFAULT NULL,   -- World Bank official number (supports trillions)
+    claimed_value    DECIMAL(20,2) DEFAULT NULL,   -- what the user's claim said (supports trillions)
+    difference       DECIMAL(20,2) DEFAULT NULL,   -- abs(official - claimed)
     percentage_error DECIMAL(5,2)  DEFAULT NULL,   -- how wrong the claim is in %
     verdict          ENUM('accurate','misleading','false','unverifiable') NOT NULL,
     tier_used        ENUM('tier1','tier2','tier3')  NOT NULL DEFAULT 'tier1',
@@ -145,6 +145,18 @@ CREATE TABLE source_stats (
     false_count      INT   DEFAULT 0,
     avg_danger_score FLOAT DEFAULT 0,
     last_updated     DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE user_outlet_preferences (
+    id           INT AUTO_INCREMENT PRIMARY KEY,
+    user_id      INT          NOT NULL,
+    outlet_name  VARCHAR(255) NOT NULL,
+    created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    UNIQUE KEY unique_user_outlet (user_id, outlet_name),
+    INDEX idx_user_id (user_id),
+
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 SELECT

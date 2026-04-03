@@ -1,24 +1,103 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { trendingApi } from '@/services/api';
+import { useState, useEffect, useRef } from 'react';
+import { trendingApi, outletsApi, claimsApi } from '@/services/api';
+import { useAuth } from '@/hooks/useAuth';
 
 function TrendingContent() {
+  const { token } = useAuth();
+  const initializationRef = useRef(false);
   const [stories, setStories] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [topStory, setTopStory] = useState<any>(null);
+  const [availableOutlets, setAvailableOutlets] = useState<string[]>([]);
+  const [selectedOutlets, setSelectedOutlets] = useState<string[]>([]);
+  const [isLoadingOutlets, setIsLoadingOutlets] = useState(false);
+  const [currentTime, setCurrentTime] = useState<string>('');
+  const [currentDate, setCurrentDate] = useState<string>('');
+  const [verifyingStoryId, setVerifyingStoryId] = useState<number | null>(null);
+  const [verificationResult, setVerificationResult] = useState<any>(null);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [verificationError, setVerificationError] = useState('');
 
   useEffect(() => {
+    // Prevent double initialization in React StrictMode (development)
+    if (initializationRef.current) return;
+    initializationRef.current = true;
+
+    loadOutlets();
     fetchTrending();
   }, []);
+
+  useEffect(() => {
+    // Refetch when outlets change
+    if (selectedOutlets.length >= 0 && initializationRef.current) {
+      fetchTrending();
+    }
+  }, [selectedOutlets]);
+
+  useEffect(() => {
+    // Set timestamp on client side to avoid hydration mismatch
+    const now = new Date();
+    setCurrentDate(now.toISOString().split('T')[0]);
+    setCurrentTime(now.toLocaleTimeString());
+  }, []);
+
+  const loadOutlets = async () => {
+    try {
+      // Load available outlets
+      const availableData = await outletsApi.getAvailable();
+      setAvailableOutlets(availableData.outlets || []);
+
+      // Load user's saved outlets if authenticated
+      if (token) {
+        try {
+          const userData = await outletsApi.getUserOutlets(token);
+          if (userData.outlets && userData.outlets.length > 0) {
+            setSelectedOutlets(userData.outlets);
+          } else {
+            setSelectedOutlets(availableData.outlets || []);
+          }
+        } catch {
+          // Fallback to all outlets
+          setSelectedOutlets(availableData.outlets || []);
+        }
+      } else {
+        // Not authenticated, select all outlets by default
+        setSelectedOutlets(availableData.outlets || []);
+      }
+    } catch (err) {
+      console.error('Failed to load outlets:', err);
+      setSelectedOutlets([]);
+    }
+  };
+
+  const handleOutletChange = async (outlet: string, checked: boolean) => {
+    let newOutlets: string[];
+    if (checked) {
+      newOutlets = [...selectedOutlets, outlet];
+    } else {
+      newOutlets = selectedOutlets.filter(o => o !== outlet);
+    }
+    setSelectedOutlets(newOutlets);
+
+    // Save to backend if authenticated
+    if (token) {
+      try {
+        await outletsApi.updateUserOutlets(newOutlets, token);
+      } catch (err) {
+        console.error('Failed to save outlet preferences:', err);
+      }
+    }
+  };
 
   const fetchTrending = async () => {
     setIsLoading(true);
     setError('');
 
     try {
-      const response = await trendingApi.getTrending('all', 20);
+      const response = await trendingApi.getTrending('all', 20, selectedOutlets.length > 0 ? selectedOutlets : undefined);
       const allStories = response.stories || [];
       setStories(allStories);
       if (allStories.length > 0) {
@@ -38,6 +117,29 @@ function TrendingContent() {
     return { label: 'Low Risk', color: 'text-green-600', border: 'bg-green-500' };
   };
 
+  const handleVerifyClaim = async (story: any) => {
+    setVerifyingStoryId(story.id);
+    setIsVerifying(true);
+    setVerificationError('');
+    setVerificationResult(null);
+
+    try {
+      const result = await claimsApi.verify(story.claim_text || story.headline, token);
+      setVerificationResult(result);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to verify claim';
+      setVerificationError(message);
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
+  const closeVerificationModal = () => {
+    setVerifyingStoryId(null);
+    setVerificationResult(null);
+    setVerificationError('');
+  };
+
   return (
     <main className="ml-64 pt-16 min-h-screen bg-background">
       <div className="max-w-7xl mx-auto px-12 py-16">
@@ -54,6 +156,33 @@ function TrendingContent() {
             High-precision indexing of emerging economic narratives. Ranked by algorithmic risk
             detection and societal transmission rate.
           </p>
+        </div>
+
+        {/* Outlet Filter */}
+        <div className="mb-12 bg-surface-container-low p-6 rounded-lg border border-outline-variant">
+          <div className="mb-4">
+            <label className="block text-[10px] font-bold uppercase tracking-widest text-on-surface-variant mb-4">
+              Filter by News Outlets
+            </label>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+              {availableOutlets.map((outlet) => (
+                <label key={outlet} className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selectedOutlets.includes(outlet)}
+                    onChange={(e) => handleOutletChange(outlet, e.target.checked)}
+                    className="w-4 h-4 text-primary border-outline-variant rounded focus:ring-2 focus:ring-primary"
+                  />
+                  <span className="text-sm text-on-surface">{outlet}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+          {selectedOutlets.length > 0 && (
+            <div className="text-[10px] text-on-surface-variant">
+              {selectedOutlets.length} outlet{selectedOutlets.length !== 1 ? 's' : ''} selected
+            </div>
+          )}
         </div>
 
         {/* Bento Grid */}
@@ -187,11 +316,20 @@ function TrendingContent() {
                     <div className="text-[9px] font-bold uppercase text-on-surface-variant">Source</div>
                   </div>
                   <div className="col-span-3 flex justify-end gap-3">
-                    <button onClick={() => {}} className="px-6 py-2 bg-surface-container-highest text-[10px] font-bold uppercase tracking-widest hover:bg-outline-variant transition-colors">
+                    <a 
+                      href={story.source_url} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="px-6 py-2 bg-surface-container-highest text-[10px] font-bold uppercase tracking-widest hover:bg-outline-variant transition-colors"
+                    >
                       Details
-                    </button>
-                    <button className="px-6 py-2 bg-primary text-on-primary text-[10px] font-bold uppercase tracking-widest hover:bg-primary-dim transition-colors">
-                      Verify
+                    </a>
+                    <button 
+                      onClick={() => handleVerifyClaim(story)}
+                      disabled={isVerifying && verifyingStoryId === story.id}
+                      className="px-6 py-2 bg-primary text-on-primary text-[10px] font-bold uppercase tracking-widest hover:bg-primary-dim transition-colors disabled:opacity-50"
+                    >
+                      {isVerifying && verifyingStoryId === story.id ? 'Verifying...' : 'Verify'}
                     </button>
                   </div>
                 </div>
@@ -219,10 +357,133 @@ function TrendingContent() {
           </div>
           <div className="text-right">
             <div className="text-[10px] font-bold uppercase tracking-widest mb-2">Timestamp</div>
-            <div className="font-display text-xl">{new Date().toISOString().split('T')[0]} // {new Date().toLocaleTimeString()} UTC</div>
+            <div className="font-display text-xl">{currentDate} // {currentTime} UTC</div>
           </div>
         </footer>
       </div>
+
+      {/* Verification Results Modal */}
+      {verifyingStoryId !== null && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-background rounded-lg max-w-2xl w-full max-h-[80vh] overflow-y-auto border border-outline-variant">
+            <div className="sticky top-0 bg-surface-container p-6 border-b border-outline-variant flex justify-between items-center">
+              <h2 className="text-2xl font-bold">Verification Result</h2>
+              <button 
+                onClick={closeVerificationModal}
+                className="text-2xl text-on-surface-variant hover:text-on-surface"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6">
+              {isVerifying && (
+                <div className="flex flex-col items-center justify-center py-12">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mb-4"></div>
+                  <p className="text-on-surface-variant">Verifying claim with NLP service...</p>
+                </div>
+              )}
+
+              {verificationError && (
+                <div className="p-4 bg-red-50 border border-red-300 rounded text-red-700">
+                  <p className="font-bold">Error</p>
+                  <p className="text-sm">{verificationError}</p>
+                </div>
+              )}
+
+              {verificationResult && !isVerifying && (
+                <>
+                  {/* Claim */}
+                  <div>
+                    <h3 className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant mb-2">
+                      Original Claim
+                    </h3>
+                    <p className="text-sm leading-relaxed">
+                      {stories.find(s => s.id === verifyingStoryId)?.claim_text || stories.find(s => s.id === verifyingStoryId)?.headline}
+                    </p>
+                  </div>
+
+                  {/* Verdict */}
+                  <div className="grid grid-cols-2 gap-6">
+                    <div>
+                      <h3 className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant mb-2">
+                        Verdict
+                      </h3>
+                      <div className={`inline-block px-4 py-2 rounded font-bold uppercase text-sm ${
+                        verificationResult.verdict === 'accurate' ? 'bg-green-100 text-green-700' :
+                        verificationResult.verdict === 'misleading' ? 'bg-yellow-100 text-yellow-700' :
+                        verificationResult.verdict === 'false' ? 'bg-red-100 text-red-700' :
+                        'bg-gray-100 text-gray-700'
+                      }`}>
+                        {verificationResult.verdict?.toUpperCase() || 'UNVERIFIABLE'}
+                      </div>
+                    </div>
+
+                    <div>
+                      <h3 className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant mb-2">
+                        Confidence
+                      </h3>
+                      <div className="text-2xl font-bold">
+                        {Math.round((verificationResult.confidence || 0) * 100)}%
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Explanation */}
+                  {verificationResult.explanation && (
+                    <div>
+                      <h3 className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant mb-2">
+                        Explanation
+                      </h3>
+                      <p className="text-sm leading-relaxed text-on-surface-variant">
+                        {verificationResult.explanation}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Evidence */}
+                  {verificationResult.evidence && verificationResult.evidence.length > 0 && (
+                    <div>
+                      <h3 className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant mb-2">
+                        Evidence
+                      </h3>
+                      <div className="space-y-2">
+                        {verificationResult.evidence.map((e: any, i: number) => (
+                          <div key={i} className="p-3 bg-surface-container-low rounded text-sm">
+                            <p className="font-medium">{e.source || 'Unknown Source'}</p>
+                            <p className="text-on-surface-variant text-xs mt-1">{e.snippet || e.title}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Metrics */}
+                  {(verificationResult.official_value || verificationResult.extracted_value) && (
+                    <div className="grid grid-cols-2 gap-4 p-4 bg-surface-container-low rounded">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase text-on-surface-variant">Official Value</p>
+                        <p className="text-lg font-bold">{verificationResult.official_value || 'N/A'}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold uppercase text-on-surface-variant">Claimed Value</p>
+                        <p className="text-lg font-bold">{verificationResult.extracted_value || 'N/A'}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  <button 
+                    onClick={closeVerificationModal}
+                    className="w-full px-6 py-3 bg-primary text-on-primary font-bold uppercase text-sm tracking-widest hover:bg-primary-dim transition-colors"
+                  >
+                    Close
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

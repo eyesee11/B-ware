@@ -75,7 +75,10 @@ app.get("/api/health", async (req, res) => {
 });
 
 // -------------------- RATE LIMIT --------------------
-// limit API usage: 100 requests per 15 minutes per IP
+// limit API usage: higher limit in development, lower in production
+const isProduction = process.env.NODE_ENV === 'production';
+const rateLimit500 = isProduction ? 100 : 500; // 500/15min in dev, 100/15min in prod
+
 app.use(
   "/api/",
   rateLimit({
@@ -83,7 +86,7 @@ app.use(
       sendCommand: (...args) => redis.call(...args),
     }),
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // max requests
+    max: rateLimit500,
     standardHeaders: true,
     legacyHeaders: false,
     message: { error: "Too many requests, slow down" },
@@ -94,6 +97,7 @@ app.use(
 app.use("/api/auth", require("./routes/authRoutes"));
 app.use("/api/claims", require("./routes/claimRoutes"));
 app.use("/api/trending", require("./routes/trendingRoutes"));
+app.use("/api/outlets", require("./routes/outletRoutes"));
 
 // -------------------- 404 HANDLER --------------------
 app.use((req, res) =>
