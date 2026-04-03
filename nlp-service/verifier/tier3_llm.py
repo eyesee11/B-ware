@@ -209,7 +209,7 @@ async def _call_groq(prompt: str, timeout: float = 30.0) -> str | None:
 
 def _parse_llm_response(raw: str) -> dict | None:
     """
-    Extract and parse the JSON block from Gemini's response.
+    Extract and parse the JSON block from Groq's response.
     Handles cases where the model wraps JSON in markdown code fences.
     """
     if not raw:
