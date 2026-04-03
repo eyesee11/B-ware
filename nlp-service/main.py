@@ -15,7 +15,7 @@ To run:
 
 Swagger docs: http://localhost:5001/docs
 
-FORCE REDEPLOY: v1.0.1 - Added Tier 3 logging
+VERSION: 1.1.0 - Groq LLM integration
 """
 import asyncio
 import logging
