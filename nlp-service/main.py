@@ -14,6 +14,8 @@ To run:
       --port 5001   → listen on port 5001 (backend is on 5000)
 
 Swagger docs: http://localhost:5001/docs
+
+FORCE REDEPLOY: v1.0.1 - Added Tier 3 logging
 """
 import asyncio
 import logging
