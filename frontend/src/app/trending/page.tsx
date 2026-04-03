@@ -222,8 +222,11 @@ function TrendingContent() {
                   </div>
                   <div className="font-display text-2xl">{topStory.verdict?.toUpperCase() || 'PENDING'}</div>
                 </div>
-                <button className="ml-auto bg-primary text-on-primary px-8 py-3 font-bold uppercase text-xs tracking-widest hover:bg-primary-dim transition-all">
-                  Verify Claim
+                <button 
+                  onClick={() => handleVerifyClaim(topStory)}
+                  disabled={isVerifying && verifyingStoryId === topStory.id}
+                  className="ml-auto bg-primary text-on-primary px-8 py-3 font-bold uppercase text-xs tracking-widest hover:bg-primary-dim transition-all disabled:opacity-50">
+                  {isVerifying && verifyingStoryId === topStory.id ? 'Verifying...' : 'Verify Claim'}
                 </button>
               </div>
             </div>
@@ -317,14 +320,23 @@ function TrendingContent() {
                     <div className="text-[9px] font-bold uppercase text-on-surface-variant">Source</div>
                   </div>
                   <div className="col-span-3 flex justify-end gap-3">
-                    <a 
-                      href={story.source_url} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="px-6 py-2 bg-surface-container-highest text-[10px] font-bold uppercase tracking-widest hover:bg-outline-variant transition-colors"
-                    >
-                      Details
-                    </a>
+                    {story.source_url ? (
+                      <a 
+                        href={story.source_url} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="px-6 py-2 bg-surface-container-highest text-[10px] font-bold uppercase tracking-widest hover:bg-outline-variant transition-colors"
+                      >
+                        Details
+                      </a>
+                    ) : (
+                      <button 
+                        disabled
+                        className="px-6 py-2 bg-surface-container-highest text-[10px] font-bold uppercase tracking-widest opacity-50 cursor-not-allowed"
+                      >
+                        Details
+                      </button>
+                    )}
                     <button 
                       onClick={() => handleVerifyClaim(story)}
                       disabled={isVerifying && verifyingStoryId === story.id}
