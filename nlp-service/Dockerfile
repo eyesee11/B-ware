@@ -1,5 +1,6 @@
 # =============================================================================
 # B-ware NLP Service — Dockerfile
+# Force rebuild: v1.0.1 - 2026-04-03
 # =============================================================================
 # Build: docker build -t bware-nlp .
 # Run:   docker run -p 5001:5001 --env-file .env bware-nlp
@@ -21,6 +22,7 @@ WORKDIR /app
 
 # --- Python dependencies ------------------------------------------------
 # Copy requirements first so Docker caches the layer unless requirements change
+# REBUILD TRIGGER: Tier 3 logging improvements
 COPY requirements.txt .
 
 # Install CPU-only torch first (saves ~1.5 GB vs the default CUDA build),
