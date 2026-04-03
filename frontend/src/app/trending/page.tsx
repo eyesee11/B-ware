@@ -124,7 +124,8 @@ function TrendingContent() {
     setVerificationResult(null);
 
     try {
-      const result = await claimsApi.verify(story.claim_text || story.headline, token);
+      const text = (story.claim_text || story.headline || '') as string;
+      const result = await claimsApi.verify(text, token || undefined);
       setVerificationResult(result);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to verify claim';
