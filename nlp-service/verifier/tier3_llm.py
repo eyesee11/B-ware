@@ -15,6 +15,7 @@ What it does:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from dataclasses import dataclass, field
@@ -24,6 +25,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+logger = logging.getLogger("bware.nlp.tier3")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 # Gemini 1.5 Flash — free tier, fast, good reasoning
@@ -150,6 +152,7 @@ async def _call_gemini(prompt: str, timeout: float = 20.0) -> str | None:
     Returns raw response text, or None on failure.
     """
     if not GEMINI_API_KEY:
+        logger.warning("GEMINI_API_KEY not configured")
         return None
 
     url = f"{GEMINI_URL}?key={GEMINI_API_KEY}"
@@ -176,7 +179,19 @@ async def _call_gemini(prompt: str, timeout: float = 20.0) -> str | None:
         # { "candidates": [ { "content": { "parts": [ { "text": "..." } ] } } ] }
         return data["candidates"][0]["content"]["parts"][0]["text"]
 
-    except (httpx.HTTPError, KeyError, IndexError, ValueError):
+    except httpx.HTTPError as e:
+        logger.error(f"Gemini HTTP error: {e.response.status_code if hasattr(e, 'response') else 'unknown'} - {str(e)}")
+        if hasattr(e, 'response') and e.response is not None:
+            try:
+                logger.error(f"Gemini response body: {e.response.text}")
+            except:
+                pass
+        return None
+    except (KeyError, IndexError, ValueError) as e:
+        logger.error(f"Gemini response parsing error: {type(e).__name__} - {str(e)}")
+        return None
+    except Exception as e:
+        logger.error(f"Unexpected Gemini error: {type(e).__name__} - {str(e)}")
         return None
 
 
@@ -230,6 +245,7 @@ async def tier3_llm_check(
     Returns a Tier3Result with verdict, confidence, explanation, and sources used.
     Falls back to an 'unverifiable' result if API call fails or key not set.
     """
+    logger.info(f"Tier 3 check invoked for claim: {claim[:100]}")
     snippets = evidence_snippets or []
 
     prompt = _build_prompt(
@@ -246,6 +262,7 @@ async def tier3_llm_check(
     raw = await _call_gemini(prompt)
 
     if raw is None:
+        logger.warning(f"Tier 3 Gemini call failed or returned None for claim: {claim[:100]}")
         return Tier3Result(
             verdict="unverifiable",
             confidence=0.0,
@@ -254,9 +271,11 @@ async def tier3_llm_check(
             raw_response="",
         )
 
+    logger.debug(f"Gemini raw response: {raw[:200]}")
     parsed = _parse_llm_response(raw)
 
     if parsed is None:
+        logger.warning(f"Failed to parse Gemini response for claim: {claim[:100]}")
         return Tier3Result(
             verdict="unverifiable",
             confidence=0.0,

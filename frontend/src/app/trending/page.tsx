@@ -99,12 +99,15 @@ function TrendingContent() {
     try {
       const response = await trendingApi.getTrending('all', 20, selectedOutlets.length > 0 ? selectedOutlets : undefined);
       const allStories = response.stories || [];
+      console.log('Trending stories fetched:', allStories);
+      console.log('First story:', allStories[0]);
       setStories(allStories);
       if (allStories.length > 0) {
         setTopStory(allStories[0]);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load trending stories';
+      console.error('Trending fetch error:', err);
       setError(message);
     } finally {
       setIsLoading(false);
@@ -118,6 +121,7 @@ function TrendingContent() {
   };
 
   const handleVerifyClaim = async (story: any) => {
+    console.log('Verify button clicked, story:', story);
     setVerifyingStoryId(story.id);
     setIsVerifying(true);
     setVerificationError('');
@@ -125,10 +129,13 @@ function TrendingContent() {
 
     try {
       const text = (story.claim_text || story.headline || '') as string;
+      console.log('Sending verification request with text:', text);
       const result = await claimsApi.verify(text, token || undefined);
+      console.log('Verification result:', result);
       setVerificationResult(result);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to verify claim';
+      console.error('Verification error:', err);
       setVerificationError(message);
     } finally {
       setIsVerifying(false);
