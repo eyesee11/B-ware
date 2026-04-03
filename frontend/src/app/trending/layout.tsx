@@ -1,3 +1,5 @@
+"use client";
+
 import AppHeader from "@/components/AppHeader";
 import SideNav from "@/components/SideNav";
 
