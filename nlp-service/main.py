@@ -94,7 +94,7 @@ class HealthResponse(BaseModel):
     service: str
     version: str
     bart_model: str       # "loaded" | "not_loaded"
-    gemini_key: str       # "configured" | "missing"
+    groq_key: str         # "configured" | "missing"
     newsapi_key: str      # "configured" | "missing"
     factcheck_key: str    # "configured" | "missing"
 
@@ -105,7 +105,7 @@ class HealthResponse(BaseModel):
                 "service": "B-ware NLP Service",
                 "version": "1.0.0",
                 "bart_model": "loaded",
-                "gemini_key": "configured",
+                "groq_key": "configured",
                 "newsapi_key": "missing",
                 "factcheck_key": "configured"
             }
@@ -559,12 +559,12 @@ def health_check():
     from verifier.tier2_nli import _load_pipeline  # local import to avoid circular
 
     bart_status = "loaded" if _load_pipeline.cache_info().currsize > 0 else "not_loaded"
-    gemini_key  = "configured" if os.getenv("GEMINI_API_KEY")            else "missing"
+    groq_key    = "configured" if os.getenv("GROQ_API_KEY")              else "missing"
     newsapi_key = "configured" if os.getenv("NEWS_API_KEY")              else "missing"
     factcheck   = "configured" if os.getenv("GOOGLE_FACT_CHECK_API_KEY") else "missing"
 
     # Degrade if any external API key is missing (Tier 2/3 will silently skip them)
-    keys_ok = all(k == "configured" for k in [gemini_key, newsapi_key, factcheck])
+    keys_ok = all(k == "configured" for k in [groq_key, newsapi_key, factcheck])
     overall = "healthy" if keys_ok else "degraded"
 
     return {
@@ -572,7 +572,7 @@ def health_check():
         "service": "B-ware NLP Service",
         "version": "1.0.0",
         "bart_model": bart_status,
-        "gemini_key": gemini_key,
+        "groq_key": groq_key,
         "newsapi_key": newsapi_key,
         "factcheck_key": factcheck,
     }

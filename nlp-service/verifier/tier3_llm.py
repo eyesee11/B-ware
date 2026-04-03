@@ -8,7 +8,7 @@ It is triggered when:
 
 What it does:
   - Accepts the original claim + Tier 1 numeric result + top evidence snippets
-  - Builds a structured prompt and sends it to Gemini 1.5 Flash API
+  - Builds a structured prompt and sends it to Groq LLM API
   - Parses the JSON response into a Tier3Result
 """
 
@@ -26,13 +26,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 logger = logging.getLogger("bware.nlp.tier3")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-# Gemini 1.5 Flash — free tier, fast, good reasoning
-GEMINI_URL = (
-    "https://generativelanguage.googleapis.com/v1beta/models/"
-    "gemini-1.5-flash:generateContent"
-)
+# Groq API — Free tier, very fast, excellent reasoning (mixtral, llama models)
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODEL = "mixtral-8x7b-32768"  # Fast, good reasoning, free tier
 
 # Minimum verdict set the prompt enforces
 VALID_VERDICTS = {"accurate", "misleading", "false", "unverifiable"}
@@ -75,7 +73,7 @@ def _build_prompt(
     evidence_snippets: list[EvidenceSummary],
 ) -> str:
     """
-    Build the structured prompt we send to Gemini.
+    Build the structured prompt we send to Groq.
 
     Design principles:
     - Give the model all context we have (Tier 1 numeric result + evidence)
@@ -143,55 +141,65 @@ RESPOND WITH ONLY VALID JSON (no markdown, no extra text):
 
 
 # =============================================================================
-# GEMINI API CALLER
+# GROQ API CALLER
 # =============================================================================
 
-async def _call_gemini(prompt: str, timeout: float = 20.0) -> str | None:
+async def _call_groq(prompt: str, timeout: float = 30.0) -> str | None:
     """
-    Call Gemini 1.5 Flash API with the given prompt.
+    Call Groq LLM API with the given prompt.
+    Uses OpenAI-compatible chat completions format.
     Returns raw response text, or None on failure.
     """
-    if not GEMINI_API_KEY:
-        logger.warning("GEMINI_API_KEY not configured")
+    if not GROQ_API_KEY:
+        logger.warning("GROQ_API_KEY not configured")
         return None
 
-    url = f"{GEMINI_URL}?key={GEMINI_API_KEY}"
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
     payload = {
-        "contents": [
+        "model": GROQ_MODEL,
+        "messages": [
             {
-                "parts": [{"text": prompt}]
+                "role": "system",
+                "content": "You are a strict, neutral fact-checking assistant for economic claims. Always respond with valid JSON only, no markdown or extra text."
+            },
+            {
+                "role": "user",
+                "content": prompt
             }
         ],
-        "generationConfig": {
-            "temperature": 0.1,       # Low temperature = factual, consistent
-            "maxOutputTokens": 512,   # JSON response is always short
-            "topP": 0.8,
-        }
+        "temperature": 0.1,       # Low temperature = factual, consistent
+        "max_tokens": 512,        # JSON response is always short
+        "top_p": 0.8,
     }
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(url, json=payload)
+            resp = await client.post(GROQ_URL, json=payload, headers=headers)
             resp.raise_for_status()
             data = resp.json()
 
-        # Gemini response shape:
-        # { "candidates": [ { "content": { "parts": [ { "text": "..." } ] } } ] }
-        return data["candidates"][0]["content"]["parts"][0]["text"]
+        # Groq response shape (OpenAI-compatible):
+        # { "choices": [ { "message": { "content": "..." } } ] }
+        return data["choices"][0]["message"]["content"]
 
     except httpx.HTTPError as e:
-        logger.error(f"Gemini HTTP error: {e.response.status_code if hasattr(e, 'response') else 'unknown'} - {str(e)}")
+        status = e.response.status_code if hasattr(e, 'response') and e.response else 'unknown'
+        logger.error(f"Groq HTTP error: {status} - {str(e)}")
         if hasattr(e, 'response') and e.response is not None:
             try:
-                logger.error(f"Gemini response body: {e.response.text}")
+                logger.error(f"Groq response body: {e.response.text}")
             except:
                 pass
         return None
     except (KeyError, IndexError, ValueError) as e:
-        logger.error(f"Gemini response parsing error: {type(e).__name__} - {str(e)}")
+        logger.error(f"Groq response parsing error: {type(e).__name__} - {str(e)}")
         return None
     except Exception as e:
-        logger.error(f"Unexpected Gemini error: {type(e).__name__} - {str(e)}")
+        logger.error(f"Unexpected Groq error: {type(e).__name__} - {str(e)}")
         return None
 
 
@@ -237,7 +245,7 @@ async def tier3_llm_check(
     evidence_snippets: list[EvidenceSummary] | None = None,
 ) -> Tier3Result:
     """
-    Tier 3 verification via Gemini 1.5 Flash.
+    Tier 3 verification via Groq LLM.
 
     Accepts all context collected by Tier 1 and Tier 2 and asks the LLM
     to produce a final verdict + explanation.
@@ -259,23 +267,23 @@ async def tier3_llm_check(
         evidence_snippets=snippets,
     )
 
-    raw = await _call_gemini(prompt)
+    raw = await _call_groq(prompt)
 
     if raw is None:
-        logger.warning(f"Tier 3 Gemini call failed or returned None for claim: {claim[:100]}")
+        logger.warning(f"Tier 3 Groq call failed or returned None for claim: {claim[:100]}")
         return Tier3Result(
             verdict="unverifiable",
             confidence=0.0,
-            explanation="Tier 3 LLM unavailable — GEMINI_API_KEY not set or API call failed.",
+            explanation="Tier 3 LLM unavailable — GROQ_API_KEY not set or API call failed.",
             sources_used=[],
             raw_response="",
         )
 
-    logger.debug(f"Gemini raw response: {raw[:200]}")
+    logger.debug(f"Groq raw response: {raw[:200]}")
     parsed = _parse_llm_response(raw)
 
     if parsed is None:
-        logger.warning(f"Failed to parse Gemini response for claim: {claim[:100]}")
+        logger.warning(f"Failed to parse Groq response for claim: {claim[:100]}")
         return Tier3Result(
             verdict="unverifiable",
             confidence=0.0,
