@@ -1,8 +1,6 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import Image from "next/image";
-import logoImg from "../../public/logo.png";
 
 export default function TopNav() {
   const path = usePathname();
@@ -12,7 +10,7 @@ export default function TopNav() {
   return (
     <nav className="fixed top-0 w-full z-50 bg-white flex justify-between items-center px-8 h-16 border-b border-zinc-100">
       <Link href="/" className="flex items-center">
-        <Image src={logoImg} alt="B-ware Logo" className="h-15 w-15 object-contain invert" priority />
+        <span className="text-xl font-black tracking-tighter text-zinc-900">B-ware</span>
       </Link>
       <div className="hidden md:flex items-center gap-8">
         <Link

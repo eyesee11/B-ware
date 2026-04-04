@@ -1,29 +1,32 @@
 import Link from "next/link";
 import TopNav from "@/components/TopNav";
+import HeroVideoBackground from "@/components/HeroVideoBackground";
+import FadeInSection from "@/components/FadeInSection";
 
 export default function LandingPage() {
   return (
-    <div className="bg-background text-on-background">
+    <div className="bg-background text-on-background relative">
+      <HeroVideoBackground />
       <TopNav />
-      <main className="pt-16">
+      <main className="pt-16 relative">
 
-        {/* ── Hero ─────────────────────────────────────────────────────── */}
-        <section className="min-h-screen flex flex-col justify-center px-8 md:px-24 py-20 relative overflow-hidden bg-white">
-          <div className="max-w-6xl w-full mx-auto grid grid-cols-1 md:grid-cols-12 gap-12 items-end">
-            <div className="md:col-span-8">
-              <span className="text-[11px] uppercase tracking-[0.3em] text-primary font-bold mb-6 block">
-                Intelligence Report / 001
-              </span>
-              <h1 className="text-7xl md:text-9xl font-display italic leading-[0.9] tracking-tighter text-zinc-900 mb-8">
-                The truth <br />is a{" "}
-                <span className="font-headline not-italic font-black text-primary">variable.</span>
-              </h1>
-              <p className="text-lg max-w-xl text-on-surface-variant leading-relaxed mb-12">
+        {/* ── Hero (Video Only) ────────────────────────────────────────── */}
+        <section className="min-h-screen relative overflow-hidden"></section>
+
+        {/* ── Hero Content ──────────────────────────────────────────────── */}
+        <FadeInSection className="bg-white py-32 px-8 md:px-24 relative overflow-hidden">
+          <div className="max-w-4xl mx-auto text-center">
+            <h2 className="text-5xl md:text-7xl font-display italic leading-[0.9] tracking-tighter text-zinc-900 mb-12">
+              The truth <br />is a{" "}
+              <span className="font-headline not-italic font-black text-primary">variable.</span>
+            </h2>
+            <div className="space-y-12">
+              <p className="text-lg text-on-surface-variant leading-relaxed mx-auto max-w-2xl">
                 B-ware is the forensic engine for the modern era. We decompose complex economic
                 narratives into atomic data points, verifying reality with surgical precision. No
                 fluff, no bias, just the raw architecture of fact.
               </p>
-              <div className="flex flex-wrap gap-4">
+              <div className="flex flex-wrap gap-4 justify-center">
                 <Link
                   href="/dashboard"
                   className="bg-inverse-surface text-surface px-10 py-4 font-bold uppercase text-xs tracking-[0.2em] hover:opacity-90 transition-opacity"
@@ -36,17 +39,14 @@ export default function LandingPage() {
                   </Link>
                 </div>
               </div>
-            </div>
-
-            <div className="md:col-span-4 border-l border-zinc-100 pl-8 pb-4">
-              <div className="space-y-8">
+              <div className="flex flex-wrap gap-12 justify-center mt-16">
                 {[
                   { val: "99.8%", label: "Extraction Accuracy" },
                   { val: "1.2ms", label: "Latency Threshold" },
                   { val: "42k+", label: "Verified Vectors" },
                 ].map((stat) => (
-                  <div key={stat.label}>
-                    <span className="block text-4xl font-display italic text-primary">{stat.val}</span>
+                  <div key={stat.label} className="text-center">
+                    <span className="block text-4xl font-display italic text-primary mb-2">{stat.val}</span>
                     <span className="text-[11px] uppercase tracking-widest text-on-surface-variant">
                       {stat.label}
                     </span>
@@ -55,13 +55,10 @@ export default function LandingPage() {
               </div>
             </div>
           </div>
-          <div className="absolute -right-20 -bottom-20 opacity-[0.03] pointer-events-none select-none">
-            <span className="text-[25rem] font-black tracking-tighter">BWR</span>
-          </div>
-        </section>
+        </FadeInSection>
 
         {/* ── Forensic Engine Overview ─────────────────────────────────── */}
-        <section className="bg-surface-container-low py-32 px-8 border-y border-zinc-200">
+        <FadeInSection className="bg-surface-container-low py-32 px-8 border-y border-zinc-200">
           <div className="max-w-7xl mx-auto">
             <div className="flex flex-col md:flex-row justify-between items-baseline mb-20 gap-8">
               <h2 className="text-4xl md:text-5xl font-display italic tracking-tight max-w-2xl">
@@ -106,10 +103,10 @@ export default function LandingPage() {
               ))}
             </div>
           </div>
-        </section>
+        </FadeInSection>
 
         {/* ── Case Study ───────────────────────────────────────────────── */}
-        <section className="py-32 px-8 bg-white" id="case-study">
+        <FadeInSection className="py-32 px-8 bg-white" id="case-study">
           <div className="max-w-7xl mx-auto">
             <div className="mb-24 text-center">
               <span className="inline-block px-4 py-1 bg-primary text-white text-[10px] font-bold tracking-[0.3em] uppercase mb-8">
@@ -306,10 +303,10 @@ export default function LandingPage() {
               </div>
             </section>
           </div>
-        </section>
+        </FadeInSection>
 
         {/* ── Discrepancy Visual ───────────────────────────────────────── */}
-        <section className="py-32 bg-surface-container-highest px-8">
+        <FadeInSection className="py-32 bg-surface-container-highest px-8">
           <div className="max-w-7xl mx-auto">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-20 items-center">
               <div>
@@ -354,10 +351,10 @@ export default function LandingPage() {
               </div>
             </div>
           </div>
-        </section>
+        </FadeInSection>
 
         {/* ── CTA ─────────────────────────────────────────────────────── */}
-        <section className="bg-inverse-surface py-32 px-8 text-surface">
+        <FadeInSection className="bg-inverse-surface py-32 px-8 text-surface">
           <div className="max-w-4xl mx-auto text-center">
             <h2 className="text-5xl md:text-8xl font-display italic mb-12 leading-tight">
               Demand the <br />
@@ -379,11 +376,11 @@ export default function LandingPage() {
               </button>
             </div>
           </div>
-        </section>
+        </FadeInSection>
       </main>
 
       {/* ── Footer ──────────────────────────────────────────────────── */}
-      <footer className="bg-black py-20 px-8 border-t border-white/5">
+      <footer className="bg-black py-20 px-8 border-t border-white/5 relative z-10">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-start gap-12">
           <div className="space-y-8 max-w-sm">
             <div className="text-3xl font-black tracking-tighter text-white uppercase">B-ware</div>
