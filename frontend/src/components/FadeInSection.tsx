@@ -11,40 +11,15 @@ export default function FadeInSection({
   className = '',
   ...props
 }: FadeInSectionProps) {
-  const sectionRef = useRef<HTMLDivElement>(null);
-  const [isVisible, setIsVisible] = useState(false);
+  const [isVisible, setIsVisible] = useState(true);
 
   useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            setIsVisible(true);
-            // Unobserve after animation plays once
-            observer.unobserve(entry.target);
-          }
-        });
-      },
-      {
-        threshold: 0.1,
-        rootMargin: '0px 0px -50px 0px',
-      }
-    );
-
-    if (sectionRef.current) {
-      observer.observe(sectionRef.current);
-    }
-
-    return () => {
-      if (sectionRef.current) {
-        observer.unobserve(sectionRef.current);
-      }
-    };
+    // Fade in on mount immediately
+    setIsVisible(true);
   }, []);
 
   return (
     <div
-      ref={sectionRef}
       className={`relative z-10 transition-all duration-1000 ${
         isVisible ? 'opacity-100' : 'opacity-0'
       } ${className}`}

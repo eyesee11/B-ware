@@ -69,8 +69,6 @@ export default function HeroVideoBackground() {
         className="w-full h-full object-cover"
         style={{
           display: 'block',
-          transform: 'scale(1.3)',
-          transformOrigin: 'center center',
         }}
         onError={() => {
           // Gracefully handle video load failures - video simply won't display
@@ -78,7 +76,7 @@ export default function HeroVideoBackground() {
         }}
       >
         <source
-          src="/The%20Chaos%20of%20Misinformation.mp4"
+          src="/video.mp4"
           type="video/mp4"
         />
         {/* Fallback for browsers that don't support video */}

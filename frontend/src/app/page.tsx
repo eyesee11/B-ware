@@ -16,7 +16,7 @@ export default function LandingPage() {
         {/* ── Hero Content ──────────────────────────────────────────────── */}
         <FadeInSection className="bg-white py-32 px-8 md:px-24 relative overflow-hidden">
           <div className="max-w-4xl mx-auto text-center">
-            <h2 className="text-5xl md:text-7xl font-display italic leading-[0.9] tracking-tighter text-zinc-900 mb-12">
+            <h2 className="text-7xl md:text-7xl font-display italic leading-[0.9] tracking-tighter text-zinc-900 mb-12">
               The truth <br />is a{" "}
               <span className="font-headline not-italic font-black text-primary">variable.</span>
             </h2>
