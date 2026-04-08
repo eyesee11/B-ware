@@ -1,5 +1,6 @@
 'use client';
 
+import Image from "next/image";
 import Link from "next/link";
 import { useRef } from "react";
 import TopNav from "@/components/TopNav";
@@ -364,8 +365,14 @@ export default function LandingPage() {
                 </div>
               </div>
               <div className="bg-zinc-900 aspect-square overflow-hidden relative group">
-                <div className="w-full h-full bg-gradient-to-br from-zinc-800 to-zinc-900 opacity-80"></div>
-                <div className="absolute inset-0 bg-primary/20 mix-blend-multiply"></div>
+                <Image
+                  src="/bg.png"
+                  alt="Abstract background"
+                  fill
+                  style={{ objectFit: 'cover' }}
+                  className="opacity-20 group-hover:opacity-30 transition-opacity duration-300"
+                />
+                <div className="absolute inset-0 bg-gradient-to-br from-zinc-800 to-zinc-900 mix-blend-hard-light opacity-0"></div>
                 <div className="absolute bottom-10 left-10 right-10 p-8 border border-white/20 backdrop-blur-md bg-black/40">
                   <span className="text-[11px] uppercase tracking-[0.3em] text-white font-bold mb-4 block">
                     Archive Capture
