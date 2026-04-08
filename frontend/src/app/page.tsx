@@ -1,17 +1,28 @@
+'use client';
+
 import Link from "next/link";
+import { useRef } from "react";
 import TopNav from "@/components/TopNav";
 import HeroVideoBackground from "@/components/HeroVideoBackground";
 import FadeInSection from "@/components/FadeInSection";
+import { useHorizontalScroll } from "@/hooks/useHorizontalScroll";
 
 export default function LandingPage() {
+  const tiersContainerRef = useRef<HTMLDivElement>(null);
+  const tiersSectionsRef = useRef<HTMLDivElement>(null);
+
+  useHorizontalScroll({ containerRef: tiersContainerRef, sectionsRef: tiersSectionsRef });
+
   return (
     <div className="bg-background text-on-background relative">
       <HeroVideoBackground />
       <TopNav />
-      <main className="pt-16 relative">
+      <main className="relative">
 
         {/* ── Hero (Video Only) ────────────────────────────────────────── */}
-        <section className="min-h-screen relative overflow-hidden"></section>
+        <section className="min-h-screen pt-16 relative overflow-hidden flex items-center justify-center">
+          <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-black/10 to-transparent pointer-events-none" />
+        </section>
 
         {/* ── Hero Content ──────────────────────────────────────────────── */}
         <FadeInSection className="bg-white py-32 px-8 md:px-24 relative overflow-hidden">
@@ -106,36 +117,47 @@ export default function LandingPage() {
         </FadeInSection>
 
         {/* ── Case Study ───────────────────────────────────────────────── */}
-        <FadeInSection className="py-32 px-8 bg-white" id="case-study">
-          <div className="max-w-7xl mx-auto">
-            <div className="mb-24 text-center">
-              <span className="inline-block px-4 py-1 bg-primary text-white text-[10px] font-bold tracking-[0.3em] uppercase mb-8">
-                Case Study: 24-089-A
-              </span>
-              <h2 className="text-5xl md:text-7xl font-display italic max-w-5xl mx-auto leading-tight">
-                &quot;The national GDP grew by{" "}
-                <span className="font-headline not-italic font-black text-tertiary">12.4%</span>{" "}
-                last fiscal quarter, the highest in the region&apos;s history.&quot;
-              </h2>
-              <div className="mt-12 h-20 w-[1px] bg-primary mx-auto"></div>
-            </div>
-
-            {/* Tier 1 */}
-            <div className="mb-32">
-              <div className="flex items-center justify-between mb-12 border-b border-zinc-100 pb-4">
-                <h2 className="text-3xl font-display italic">
-                  Tier 01:{" "}
-                  <span className="font-headline not-italic font-black uppercase tracking-tighter">
-                    Quantitative Audit
-                  </span>
-                </h2>
-                <span className="text-[11px] font-bold text-on-surface-variant tracking-widest">
-                  SOURCE: WORLD BANK IBRD
+        <div className="bg-white" id="case-study">
+          <FadeInSection className="py-32 px-8">
+            <div className="max-w-7xl mx-auto">
+              <div className="mb-24 text-center">
+                <span className="inline-block px-4 py-1 bg-primary text-white text-[10px] font-bold tracking-[0.3em] uppercase mb-8">
+                  Case Study: 24-089-A
                 </span>
+                <h2 className="text-5xl md:text-7xl font-display italic max-w-5xl mx-auto leading-tight">
+                  &quot;The national GDP grew by{" "}
+                  <span className="font-headline not-italic font-black text-tertiary">12.4%</span>{" "}
+                  last fiscal quarter, the highest in the region&apos;s history.&quot;
+                </h2>
+                <div className="mt-12 h-20 w-[1px] bg-primary mx-auto"></div>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
-                <div className="md:col-span-8 bg-surface-container-lowest p-12 border-l-[6px] border-primary">
-                  <div className="grid grid-cols-2 gap-12 mb-16">
+            </div>
+          </FadeInSection>
+
+          {/* ── Horizontal Scrolling Tiers Container ────────────────────────── */}
+          <div ref={tiersContainerRef} className="overflow-hidden bg-white">
+            <div
+              ref={tiersSectionsRef}
+              className="flex flex-nowrap"
+              style={{ width: '300vw' }}
+            >
+              {/* Tier 1 */}
+              <div className="tier-slide w-screen flex-shrink-0 px-8 py-16 md:py-24 bg-white">
+                <div className="max-w-7xl mx-auto">
+                  <div className="flex items-center justify-between mb-12 border-b border-zinc-100 pb-4">
+                    <h2 className="text-3xl font-display italic">
+                      Tier 01:{" "}
+                      <span className="font-headline not-italic font-black uppercase tracking-tighter">
+                        Quantitative Audit
+                      </span>
+                    </h2>
+                <span className="text-[11px] font-bold text-on-surface-variant tracking-widest">
+                    SOURCE: WORLD BANK IBRD
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
+                  <div className="md:col-span-8 bg-surface-container-lowest p-12 border-l-[6px] border-primary">
+                    <div className="grid grid-cols-2 gap-12 mb-16">
                     <div>
                       <span className="text-[11px] uppercase tracking-[0.2em] text-on-surface-variant font-bold mb-4 block">
                         Claimed Value
@@ -148,47 +170,49 @@ export default function LandingPage() {
                       </span>
                       <div className="text-6xl font-display italic text-primary">3.1%</div>
                     </div>
-                  </div>
-                  <div className="relative pt-8 border-t border-zinc-100">
-                    <span className="text-[11px] uppercase tracking-[0.2em] text-on-surface-variant font-bold mb-6 block">
-                      Deviation Scale
-                    </span>
-                    <div className="h-12 bg-surface-container-low relative w-full">
-                      <div className="absolute inset-y-0 left-0 bg-primary/20 h-full w-[31%]"></div>
-                      <div className="absolute inset-y-0 left-[31%] w-1 bg-primary h-full z-10"></div>
-                      <div className="absolute inset-y-0 left-[31%] bg-error/10 h-full w-[69%]"></div>
-                      <div className="absolute inset-y-0 right-0 w-1 bg-error h-full"></div>
+                    </div>
+                    <div className="relative pt-8 border-t border-zinc-100">
+                      <span className="text-[11px] uppercase tracking-[0.2em] text-on-surface-variant font-bold mb-6 block">
+                        Deviation Scale
+                      </span>
+                      <div className="h-12 bg-surface-container-low relative w-full">
+                        <div className="absolute inset-y-0 left-0 bg-primary/20 h-full w-[31%]"></div>
+                        <div className="absolute inset-y-0 left-[31%] w-1 bg-primary h-full z-10"></div>
+                        <div className="absolute inset-y-0 left-[31%] bg-error/10 h-full w-[69%]"></div>
+                        <div className="absolute inset-y-0 right-0 w-1 bg-error h-full"></div>
+                      </div>
                     </div>
                   </div>
+                  <div className="md:col-span-4 bg-surface-container-low p-12 flex flex-col justify-center">
+                    <h3 className="font-headline font-bold uppercase text-xs tracking-[0.2em] mb-6">
+                      Statistical Variance
+                    </h3>
+                    <div className="text-7xl font-display italic text-error mb-4">+300%</div>
+                    <p className="text-sm text-on-surface-variant leading-relaxed">
+                      The discrepancy suggests a deliberate use of unadjusted nominal figures to
+                      inflate perceived economic performance. Verified data shows a 9.3 percentage
+                      point variance.
+                    </p>
+                  </div>
                 </div>
-                <div className="md:col-span-4 bg-surface-container-low p-12 flex flex-col justify-center">
-                  <h3 className="font-headline font-bold uppercase text-xs tracking-[0.2em] mb-6">
-                    Statistical Variance
-                  </h3>
-                  <div className="text-7xl font-display italic text-error mb-4">+300%</div>
-                  <p className="text-sm text-on-surface-variant leading-relaxed">
-                    The discrepancy suggests a deliberate use of unadjusted nominal figures to
-                    inflate perceived economic performance. Verified data shows a 9.3 percentage
-                    point variance.
-                  </p>
                 </div>
               </div>
-            </div>
 
-            {/* Tier 2 */}
-            <div className="mb-32">
-              <div className="flex items-center justify-between mb-12 border-b border-zinc-100 pb-4">
-                <h2 className="text-3xl font-display italic">
-                  Tier 02:{" "}
-                  <span className="font-headline not-italic font-black uppercase tracking-tighter">
-                    Narrative Cross-Reference
-                  </span>
-                </h2>
-                <span className="text-[11px] font-bold text-on-surface-variant tracking-widest">
-                  API: GOOGLE FACT CHECK / REUTERS
-                </span>
-              </div>
-              <div className="space-y-6">
+              {/* Tier 2 */}
+              <div className="tier-slide w-screen flex-shrink-0 px-8 py-16 md:py-24 bg-white">
+                <div className="max-w-7xl mx-auto">
+                  <div className="flex items-center justify-between mb-12 border-b border-zinc-100 pb-4">
+                    <h2 className="text-3xl font-display italic">
+                      Tier 02:{" "}
+                      <span className="font-headline not-italic font-black uppercase tracking-tighter">
+                        Narrative Cross-Reference
+                      </span>
+                    </h2>
+                    <span className="text-[11px] font-bold text-on-surface-variant tracking-widest">
+                      API: GOOGLE FACT CHECK / REUTERS
+                    </span>
+                  </div>
+                  <div className="space-y-6">
                 {[
                   {
                     border: "border-error",
@@ -229,19 +253,17 @@ export default function LandingPage() {
                     </div>
                   </div>
                 ))}
-              </div>
-            </div>
-
-            {/* Tier 3 */}
-            <section className="bg-inverse-surface text-surface p-16 md:p-24 relative overflow-hidden">
-              <div className="absolute top-0 right-0 p-12 opacity-10">
-                <span className="material-symbols-outlined text-[10rem]">security</span>
-              </div>
-              <div className="relative z-10">
-                <div className="flex flex-col md:flex-row items-start md:items-center gap-6 mb-16">
-                  <div className="w-16 h-16 bg-primary flex items-center justify-center">
-                    <span className="material-symbols-outlined text-white text-3xl">bolt</span>
                   </div>
+                </div>
+              </div>
+
+              {/* Tier 3 */}
+              <div className="tier-slide w-screen flex-shrink-0 px-8 py-16 md:py-24 bg-inverse-surface text-surface">
+                <div className="max-w-7xl mx-auto relative overflow-hidden">
+                  <div className="flex flex-col md:flex-row items-start md:items-center gap-6 mb-16">
+                    <div className="w-16 h-16 bg-primary flex items-center justify-center">
+                      <span className="material-symbols-outlined text-white text-3xl">bolt</span>
+                    </div>
                   <div>
                     <h2 className="text-4xl md:text-5xl font-display italic leading-none mb-2">
                       Tier 03:{" "}
@@ -300,10 +322,14 @@ export default function LandingPage() {
                     </div>
                   </div>
                 </div>
+                <div className="absolute top-0 right-0 p-12 opacity-10">
+                  <span className="material-symbols-outlined text-[10rem]">security</span>
+                </div>
               </div>
-            </section>
+            </div>
+            </div>
           </div>
-        </FadeInSection>
+        </div>
 
         {/* ── Discrepancy Visual ───────────────────────────────────────── */}
         <FadeInSection className="py-32 bg-surface-container-highest px-8">
