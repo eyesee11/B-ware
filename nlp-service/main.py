@@ -536,7 +536,7 @@ from fastapi.responses import RedirectResponse
 
 @app.head("/", include_in_schema=False)
 @app.get("/", include_in_schema=False)
-async def root():
+async def root(request: Request):
     """Redirect root to /docs."""
     return RedirectResponse(url="/docs")
 
@@ -552,17 +552,7 @@ async def custom_swagger_ui():
     return HTMLResponse(get_swagger_html())
 
 
-@app.head(
-    "/health",
-    include_in_schema=False
-)
-@app.get(
-    "/health",
-    response_model=HealthResponse,
-    tags=["Service Info"],
-    summary="Health check",
-    response_description="Service status and version info"
-)
+@app.api_route("/health", methods=["GET", "HEAD"], response_model=HealthResponse, tags=["Service Info"], summary="Health check", response_description="Service status and version info")
 def health_check():
     """
     Check if the NLP service is running and all components are ready.
