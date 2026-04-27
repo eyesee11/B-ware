@@ -532,14 +532,30 @@ async def generic_exception_handler(request, exc):
 
 # ENDPOINTS
 
+from fastapi.responses import RedirectResponse
+
+@app.head("/", include_in_schema=False)
+@app.get("/", include_in_schema=False)
+async def root():
+    """Redirect root to /docs."""
+    return RedirectResponse(url="/docs")
+
+@app.head("/favicon.ico", include_in_schema=False)
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    """Ignore favicon requests."""
+    return JSONResponse(status_code=204, content=None)
+
 @app.get("/docs", include_in_schema=False)
 async def custom_swagger_ui():
     """Serve Swagger UI with a custom dark theme."""
     return HTMLResponse(get_swagger_html())
 
 
-
-
+@app.head(
+    "/health",
+    include_in_schema=False
+)
 @app.get(
     "/health",
     response_model=HealthResponse,
