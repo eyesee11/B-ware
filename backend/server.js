@@ -14,7 +14,7 @@ const REQUIRED_ENV = [
   "JWT_SECRET",
 ];
 const missingEnv = REQUIRED_ENV.filter((k) => !process.env[k]);
-if (missingEnv.length) {
+if (missingEnv.length && process.env.NODE_ENV !== "test") {
   console.error(`Missing required env vars: ${missingEnv.join(", ")}`);
   process.exit(1);
 }
@@ -116,30 +116,34 @@ app.use((err, req, res, next) => {
 // -------------------- START SERVER --------------------
 const PORT = process.env.PORT || 5000;
 
-const server = app.listen(PORT, () => {
-  console.log(`B-ware backend running at http://localhost:${PORT}`);
-});
-
-// -------------------- GRACEFUL SHUTDOWN --------------------
-// close database and redis properly when server stops
-function shutdown(signal) {
-  console.log(`${signal} received. Shutting down server...`);
-
-  server.close(async () => {
-    try {
-      await db.end();
-    } catch {}
-
-    try {
-      redis.disconnect();
-    } catch {}
-
-    process.exit(0);
+if (process.env.NODE_ENV !== "test") {
+  const server = app.listen(PORT, () => {
+    console.log(`B-ware backend running at http://localhost:${PORT}`);
   });
+
+  // -------------------- GRACEFUL SHUTDOWN --------------------
+  // close database and redis properly when server stops
+  function shutdown(signal) {
+    console.log(`${signal} received. Shutting down server...`);
+
+    server.close(async () => {
+      try {
+        await db.end();
+      } catch {}
+
+      try {
+        redis.disconnect();
+      } catch {}
+
+      process.exit(0);
+    });
+  }
+
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
+
+  // start background job for trending claims
+  require("./jobs/trendingJob");
 }
 
-process.on("SIGTERM", () => shutdown("SIGTERM"));
-process.on("SIGINT", () => shutdown("SIGINT"));
-
-// start background job for trending claims
-require("./jobs/trendingJob");
+module.exports = app;

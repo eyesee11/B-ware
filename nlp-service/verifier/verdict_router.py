@@ -11,7 +11,7 @@ Routing logic:
        extraction confidence > 0.8 → return immediately, skip Tier 2/3
   3. Otherwise → run Tier 2 (evidence fetch + NLI)
      - If Tier 2 confidence >= 0.6 → merge Tier 1 + Tier 2 and return
-  4. Otherwise → escalate to Tier 3 (Gemini LLM)
+  4. Otherwise → escalate to Tier 3 (groq llm)
 
 force_tier3=True bypasses the router and always runs all tiers up to Tier 3.
 This is used by POST /verify/deep.
@@ -48,7 +48,7 @@ class _ResultCache:
     """
     In-process TTL cache for VerificationResult objects.
     Keyed on MD5(text) + force_tier3 — same claim + same depth = same result.
-    TTL: 1 hour. Saves World Bank + NewsAPI + Gemini quota on repeated claims.
+    TTL: 1 hour. Saves World Bank + NewsAPI + groq llm quota on repeated claims.
 
     The Node backend also caches in Redis (L2 cache). This is the L1 cache
     inside the NLP service itself — prevents any external API calls on hits.
@@ -329,7 +329,7 @@ async def route_verification(
         return _t2_result
 
     # ──────────────────────────────────────────────────────────────────────
-    # TIER 3: Gemini LLM
+    # TIER 3: groq llm
     # ──────────────────────────────────────────────────────────────────────
     evidence_summaries = [
         EvidenceSummary(

@@ -23,7 +23,7 @@ MOCK HIERARCHY (what calls what):
     ├── tier1_numeric_check    ← mocked (no World Bank API call)
     ├── fetch_evidence         ← mocked (no NewsAPI/Google call)
     ├── run_nli                ← mocked (no BART model)
-    └── tier3_llm_check        ← mocked (no Gemini call)
+    └── tier3_llm_check        ← mocked (no groq llm call)
 """
 
 import sys

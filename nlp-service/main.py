@@ -351,7 +351,7 @@ class FullVerificationResult(BaseModel):
     tier_used values:
       tier1  — verdict came from numeric World Bank check alone
       tier2  — verdict came from NLI over news/fact-check evidence
-      tier3  — verdict came from Gemini LLM reasoning
+      tier3  — verdict came from groq llm reasoning
 
     verdict values:
       accurate      — claim matches official/evidence data within 5%
@@ -883,7 +883,7 @@ async def verify_full(request: ClaimRequest):
        If clear result (error < 5% or ≥ 20%) with high extraction confidence → return immediately.
     2. **Tier 2** — fetch news + fact-check evidence, run NLI model over snippets.
        If NLI confidence ≥ 0.6 → return merged Tier 1 + Tier 2 verdict.
-    3. **Tier 3** — Gemini 1.5 Flash LLM reasoning over all collected context.
+    3. **Tier 3** — groq llm reasoning over all collected context.
        Always used as fallback if Tier 2 is uncertain or model unavailable.
 
     Returns the `tier_used` field so you know which layer produced the verdict.
@@ -959,7 +959,7 @@ async def verify_deep(request: Request, body: ClaimRequest):
     - You want `tiers_run: ["tier1", "tier2", "tier3"]` guaranteed in the response
 
     **Slower** than `/verify` — expect ~3–8 seconds latency (network + LLM).
-    Subject to Gemini free-tier rate limits (15 req/min). **Rate limited to 10 req/min per IP.**
+    Subject to groq llm rate limits (15 req/min). **Rate limited to 10 req/min per IP.**
     """
     clean_text = preprocess_claim(body.text)
     try:

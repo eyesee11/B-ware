@@ -1,5 +1,5 @@
 """
-test_tier3_llm.py — Tests for Tier 3: LLM reasoning via Gemini
+test_tier3_llm.py — Tests for Tier 3: LLM reasoning via groq llm
 ===============================================================
 Run with:  pytest tests/test_tier3_llm.py -v
 
@@ -7,10 +7,10 @@ WHAT WE'RE TESTING:
   - Prompt building: correct structure for all data combinations
   - Response parsing: valid JSON, markdown-wrapped JSON, garbage input
   - Graceful degradation: missing API key, API errors, invalid verdicts
-  - End-to-end tier3_llm_check with mocked Gemini responses
+  - End-to-end tier3_llm_check with mocked groq llm responses
 
 WHY WE TEST PARSING SO HEAVILY:
-  LLMs are unpredictable. Gemini might return:
+  LLMs are unpredictable. groq llm might return:
     - Clean JSON: {"verdict": "accurate", ...}
     - Markdown-wrapped: ```json\n{"verdict": "accurate", ...}\n```
     - With extra text: "Here's my analysis:\n{...}"
@@ -40,7 +40,7 @@ from verifier.tier3_llm import (
 
 class TestBuildPrompt:
     """
-    _build_prompt constructs the text sent to Gemini.
+    _build_prompt constructs the text sent to groq llm.
     It must include ALL available context and handle missing data gracefully.
     """
 
@@ -215,7 +215,7 @@ class TestParseResponse:
 
 
 # =============================================================================
-# END-TO-END TIER 3 TESTS (with mocked Gemini API)
+# END-TO-END TIER 3 TESTS (with mocked groq llm API)
 # =============================================================================
 
 class TestTier3LlmCheck:
@@ -223,7 +223,7 @@ class TestTier3LlmCheck:
     Tests for the full tier3_llm_check function.
     
     MOCKING STRATEGY:
-      We mock _call_gemini (the HTTP call to Gemini) not the whole function.
+      We mock _call_groq (the HTTP call to groq llm) not the whole function.
       This way we still test:
         - Prompt building
         - Response parsing
@@ -232,14 +232,14 @@ class TestTier3LlmCheck:
       Only the actual HTTP call is faked.
     
     AsyncMock vs MagicMock:
-      _call_gemini is an async function (async def _call_gemini).
+      _call_groq is an async function (async def _call_groq).
       Regular MagicMock doesn't work with `await`. AsyncMock does.
     """
 
-    @patch("verifier.tier3_llm._call_gemini", new_callable=AsyncMock)
-    def test_successful_analysis(self, mock_gemini):
-        """Happy path: Gemini returns valid JSON."""
-        mock_gemini.return_value = '{"verdict": "accurate", "confidence": 0.95, "explanation": "The claimed GDP growth of 7.5% matches World Bank data.", "sources_used": ["World Bank"]}'
+    @patch("verifier.tier3_llm._call_groq", new_callable=AsyncMock)
+    def test_successful_analysis(self, mock_groq):
+        """Happy path: groq llm returns valid JSON."""
+        mock_groq.return_value = '{"verdict": "accurate", "confidence": 0.95, "explanation": "The claimed GDP growth of 7.5% matches World Bank data.", "sources_used": ["World Bank"]}'
         
         result = asyncio.run(tier3_llm_check(
             claim="GDP grew 7.5% in 2024",
@@ -256,17 +256,17 @@ class TestTier3LlmCheck:
         assert result.confidence == 0.95
         assert "World Bank" in result.sources_used
 
-    @patch("verifier.tier3_llm._call_gemini", new_callable=AsyncMock)
-    def test_no_api_key(self, mock_gemini):
+    @patch("verifier.tier3_llm._call_groq", new_callable=AsyncMock)
+    def test_no_api_key(self, mock_groq):
         """
-        When GEMINI_API_KEY is not set, _call_gemini returns None.
+        When GROQ_API_KEY is not set, _call_groq returns None.
         tier3_llm_check should return 'unverifiable' gracefully.
         
         WHY THIS MATTERS:
-          In development, your teammates might not have a Gemini key.
+          In development, your teammates might not have a groq llm key.
           The system should degrade gracefully, not crash.
         """
-        mock_gemini.return_value = None  # simulates no API key
+        mock_groq.return_value = None  # simulates no API key
         
         result = asyncio.run(tier3_llm_check(claim="GDP grew 7.5%"))
         
@@ -274,41 +274,41 @@ class TestTier3LlmCheck:
         assert result.confidence == 0.0
         assert "unavailable" in result.explanation.lower() or "unparseable" in result.explanation.lower()
 
-    @patch("verifier.tier3_llm._call_gemini", new_callable=AsyncMock)
-    def test_invalid_verdict_normalized(self, mock_gemini):
+    @patch("verifier.tier3_llm._call_groq", new_callable=AsyncMock)
+    def test_invalid_verdict_normalized(self, mock_groq):
         """
-        If Gemini returns a verdict not in our vocabulary (e.g., "partially true"),
+        If groq llm returns a verdict not in our vocabulary (e.g., "partially true"),
         it should be normalized to 'unverifiable'.
         
         WHY:
           The frontend expects exactly 4 verdict strings for color coding.
           Any other string would break the UI.
         """
-        mock_gemini.return_value = '{"verdict": "partially true", "confidence": 0.7, "explanation": "Some parts are right.", "sources_used": []}'
+        mock_groq.return_value = '{"verdict": "partially true", "confidence": 0.7, "explanation": "Some parts are right.", "sources_used": []}'
         
         result = asyncio.run(tier3_llm_check(claim="GDP grew 7.5%"))
         
         assert result.verdict == "unverifiable"  # normalized from "partially true"
 
-    @patch("verifier.tier3_llm._call_gemini", new_callable=AsyncMock)
-    def test_confidence_clamped_to_range(self, mock_gemini):
+    @patch("verifier.tier3_llm._call_groq", new_callable=AsyncMock)
+    def test_confidence_clamped_to_range(self, mock_groq):
         """
-        If Gemini returns confidence > 1.0 or < 0.0, it should be clamped.
+        If groq llm returns confidence > 1.0 or < 0.0, it should be clamped.
         
         WHY:
           LLMs sometimes return 95 instead of 0.95, or -0.1 for uncertainty.
           Clamping to [0.0, 1.0] prevents UI bugs (progress bars overflowing, etc).
         """
-        mock_gemini.return_value = '{"verdict": "accurate", "confidence": 95.0, "explanation": "Sure.", "sources_used": []}'
+        mock_groq.return_value = '{"verdict": "accurate", "confidence": 95.0, "explanation": "Sure.", "sources_used": []}'
         
         result = asyncio.run(tier3_llm_check(claim="GDP grew 7.5%"))
         
         assert result.confidence == 1.0  # clamped from 95.0
 
-    @patch("verifier.tier3_llm._call_gemini", new_callable=AsyncMock)
-    def test_unparseable_response(self, mock_gemini):
-        """Gemini returns non-JSON text → graceful degradation."""
-        mock_gemini.return_value = "I'm sorry, I cannot verify economic claims."
+    @patch("verifier.tier3_llm._call_groq", new_callable=AsyncMock)
+    def test_unparseable_response(self, mock_groq):
+        """groq llm returns non-JSON text → graceful degradation."""
+        mock_groq.return_value = "I'm sorry, I cannot verify economic claims."
         
         result = asyncio.run(tier3_llm_check(claim="GDP grew 7.5%"))
         
