@@ -34,7 +34,7 @@ It doesn't just tell you **true or false**. It shows you:
 - An **AI-generated explanation** of why the claim is accurate, misleading, or false
 - A **danger score** for trending rumours in the news
 
-![Hero Screenshot](docs/images/hero-screenshot.png)
+![Hero Screenshot](docs/images/hero.png)
 
 ---
 
@@ -81,7 +81,7 @@ It doesn't just tell you **true or false**. It shows you:
 
 - **Tier 1 — Numeric Check** — compares claimed values against World Bank official data in real time; supports **11 countries** (IN, US, CN, GB, JP, DE, FR, BR, CA, AU, KR)
 - **Tier 2 — NLI Evidence Check** — fetches news snippets and runs an NLI model (BART-MNLI) to detect entailment or contradiction
-- **Tier 3 — LLM Reasoning** — sends everything to Gemini 1.5 Flash for nuanced, multi-source reasoning
+- **Tier 3 — LLM Reasoning** — sends everything to groq llm for nuanced, multi-source reasoning
 
 ### Extraction Engine Highlights
 
@@ -108,7 +108,7 @@ It doesn't just tell you **true or false**. It shows you:
 - JWT authentication with Redis-backed logout (token blacklisting)
 - Redis caching for claim deduplication (24h TTL) and trending feed (5min TTL)
 - Rate limiting (100 req/15min per IP with Redis store on backend; 10 req/min per IP on `/verify/deep` via slowapi)
-- **L1 result cache** — in-process TTL cache (1hr) in the NLP service prevents duplicate World Bank + NewsAPI + Gemini calls
+- **L1 result cache** — in-process TTL cache (1hr) in the NLP service prevents duplicate World Bank + NewsAPI + groq llm calls
 - **30-second timeout guard** on all `/verify` endpoints — returns `verdict="unverifiable"` gracefully on slow APIs
 
 ---
@@ -140,7 +140,7 @@ It doesn't just tell you **true or false**. It shows you:
 │ users      │    │ claim cache│    │ 11 endpoints     │
 │ claims     │    │ trending   │    │ RAV 3-tier engine│
 │ verdicts   │    │ rate limit │    │ BART-MNLI model  │
-│ trending   │    │ JWT block  │    │ Gemini 1.5 Flash │
+│ trending   │    │ JWT block  │    │ groq llm │
 └────────────┘    └────────────┘    └──────────────────┘
 ```
 
@@ -172,7 +172,7 @@ Claim: "India's GDP growth rate was 7.5% in 2024"
 │ Confidence ≥ 0.6 → return merged Tier 1 + Tier 2 result         │
 ├─────────────────────────────────────────────────────────────────┤
 │ TIER 3 — LLM Reasoning (1-3s) [only if Tier 2 is uncertain]    │
-│ Gemini 1.5 Flash receives: claim + numeric data + evidence      │
+│ groq llm receives: claim + numeric data + evidence      │
 │ Returns JSON: { verdict, confidence, explanation, sources_used } │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -239,7 +239,7 @@ User submits claim
 │ TIER 3: LLM Reasoning          │
 │ Build prompt with: claim +     │
 │   numeric data + evidence       │
-│ Send to Gemini 1.5 Flash       │
+│ Send to groq llm       │
 │ Parse JSON response             │
 │ Return tier3 result ────────────┼──→ DONE
 └─────────────────────────────────┘
@@ -324,7 +324,7 @@ The BART model is mocked in tests so they run in under 3 seconds.
 | **Backend**     | Node.js 18+, Express 5, JWT, bcryptjs                  | REST API gateway, auth, business logic                    |
 | **NLP Service** | Python 3.10+, FastAPI, Pydantic v2                     | AI/ML microservice for extraction & verification          |
 | **NLI Model**   | HuggingFace `facebook/bart-large-mnli`                 | Natural Language Inference (entail/contradict)            |
-| **LLM**         | Google Gemini 1.5 Flash                                | Multi-source reasoning and explanation generation         |
+| **LLM**         | Google groq llm                                | Multi-source reasoning and explanation generation         |
 | **Database**    | MySQL 8.0                                              | Persistent storage for users, claims, verdicts            |
 | **Cache**       | Redis 7.x (ioredis)                                    | Claim dedup, rate limiting, trending cache, JWT blacklist |
 | **Data APIs**   | World Bank, NewsAPI, Google Fact Check                 | Official data + live news evidence                        |
@@ -368,13 +368,13 @@ full_stack/
 │   ├── claim_detector.py              ← sentence splitting + scoring
 │   ├── swagger_ui.py                  ← custom dark Swagger theme
 │   ├── requirements.txt
-│   ├── .env                           ← API keys (NewsAPI, Gemini, etc.)
+│   ├── .env                           ← API keys (NewsAPI, groq llm, etc.)
 │   ├── verifier/                      ← RAV Engine package
 │   │   ├── __init__.py
 │   │   ├── tier1_numeric.py           ← World Bank numeric check
 │   │   ├── evidence_fetcher.py        ← Google Fact Check + NewsAPI
 │   │   ├── tier2_nli.py               ← BART-MNLI NLI pipeline
-│   │   ├── tier3_llm.py               ← Gemini 1.5 Flash reasoning
+│   │   ├── tier3_llm.py               ← groq llm reasoning
 │   │   └── verdict_router.py          ← 3-tier orchestrator
 │   └── tests/
 │       ├── conftest.py            ← autouse fixture: clears L1 result cache between tests
@@ -571,14 +571,11 @@ curl -X POST http://localhost:5000/api/claims/verify \
 | ---------------------- | -------------------------------------------- |
 | **Swagger API Docs**   | ![Swagger](docs/images/swagger-ui.png)       |
 | **Claim Verification** | ![Verify](docs/images/verify-page.png)       |
-| **Verdict Card**       | ![Verdict](docs/images/verdict-card.png)     |
 | **Paragraph Analysis** | ![Analyze](docs/images/analyze-page.png)     |
-| **Dashboard**          | ![Dashboard](docs/images/dashboard-page.png) |
 | **Charts & Analytics** | ![Charts](docs/images/charts-page.png)       |
 | **Trending Rumours**   | ![Trending](docs/images/trending-page.png)   |
 | **Source Leaderboard** | ![Sources](docs/images/sources-page.png)     |
 | **Login Page**         | ![Login](docs/images/login-page.png)         |
-| **Mobile View**        | ![Mobile](docs/images/mobile-view.png)       |
 
 ---
 
@@ -609,7 +606,7 @@ Multi-country support covers **11 countries** (India, USA, China, UK, Japan, Ger
 | [World Bank Open Data](https://data.worldbank.org)                            | Official statistics (196 countries) | Tier 1 | Free              |
 | [NewsAPI](https://newsapi.org)                                                | News articles (80k+ sources)        | Tier 2 | Free (100/day)    |
 | [Google Fact Check Tools](https://developers.google.com/fact-check/tools/api) | Fact-checks (Snopes, AFP, AltNews)  | Tier 2 | Free              |
-| [Gemini 1.5 Flash](https://aistudio.google.com)                               | LLM reasoning                       | Tier 3 | Free (15 req/min) |
+| [groq llm](https://aistudio.google.com)                               | LLM reasoning                       | Tier 3 | Free (15 req/min) |
 | [IMF Data API](https://www.imf.org/external/datamapper/api/v1/)               | GDP, fiscal, trade data             | Backup | Free              |
 | [RBI DBIE](https://data.rbi.org.in/)                                          | India-specific financial data       | Backup | Free              |
 
@@ -636,3 +633,4 @@ This project is licensed under the MIT License.
 <p align="center">
   <strong>B-ware: Because facts should be verified, not assumed.</strong>
 </p>
+

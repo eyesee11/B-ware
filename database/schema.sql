@@ -101,7 +101,7 @@ CREATE TABLE tier3_results (
     explanation  TEXT          NOT NULL,
     sources_used JSON          DEFAULT NULL,         -- e.g. ["World Bank","Reuters"]
     raw_response TEXT          DEFAULT NULL,         -- full LLM output for debugging
-    model_used   VARCHAR(100)  DEFAULT 'gemini-1.5-flash',
+    model_used   VARCHAR(100)  DEFAULT 'groq llm',
     analyzed_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
     UNIQUE KEY unique_claim_tier3 (claim_id),        -- one LLM result per claim max

@@ -38,4 +38,4 @@ HUGGINGFACE MODEL NOTES
         ClaimBuster — US presidential debate claims
 
 
-  Refractor the code to use Groq API key instead of Gemini(almost done, jsut the hf space need to catch the changes and implement them.)
+  Refractor the code to use Groq API key instead of groq llm(almost done, jsut the hf space need to catch the changes and implement them.)
