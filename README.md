@@ -144,7 +144,7 @@ It doesn't just tell you **true or false**. It shows you:
 └────────────┘    └────────────┘    └──────────────────┘
 ```
 
-![Architecture Diagram](docs/images/architecture-diagram.png)
+![Architecture Diagram](/architecture-diagram.png)
 
 ---
 
