@@ -186,8 +186,6 @@ Claim: "India's GDP growth rate was 7.5% in 2024"
 | ≥ 20%    | **False**        | Red      |
 | No data  | **Unverifiable** | Gray     |
 
-![Verdict Card](docs/images/verdict-card.png)
-
 ---
 
 ---
