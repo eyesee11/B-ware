@@ -1,5 +1,5 @@
 // Firebase Client SDK — initialised once from NEXT_PUBLIC_* env vars
-import { initializeApp, getApps, getApp } from 'firebase/app';
+import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 
 const firebaseConfig = {
@@ -11,8 +11,22 @@ const firebaseConfig = {
   appId:             process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-// Guard against double-init in Next.js hot-reload
-const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+// Guard: if env vars are missing (e.g. Vercel build without env configured),
+// create a no-op app so the build doesn't crash during SSG.
+let app: FirebaseApp;
+
+if (!firebaseConfig.apiKey) {
+  console.warn(
+    '[Firebase] NEXT_PUBLIC_FIREBASE_API_KEY is not set — Firebase will not work. ' +
+    'Add Firebase env vars in Vercel → Project Settings → Environment Variables.'
+  );
+  // Provide a dummy config so initializeApp doesn't throw during build
+  app = getApps().length
+    ? getApp()
+    : initializeApp({ apiKey: 'dummy', projectId: 'dummy', appId: 'dummy' });
+} else {
+  app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+}
 
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();

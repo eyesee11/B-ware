@@ -387,6 +387,7 @@ export default function LandingPage() {
                   src="/bg.png"
                   alt="Abstract background"
                   fill
+                  sizes="(min-width: 768px) 50vw, 100vw"
                   style={{ objectFit: 'cover' }}
                   className="opacity-20 group-hover:opacity-30 transition-opacity duration-300"
                 />

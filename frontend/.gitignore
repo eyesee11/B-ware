@@ -7,6 +7,10 @@ node_modules/
 .next/
 /out/
 
+# TypeScript build info (incremental compile cache)
+tsconfig.tsbuildinfo
+*.tsbuildinfo
+
 # Production
 /build
 

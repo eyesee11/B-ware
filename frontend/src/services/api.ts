@@ -4,10 +4,7 @@
 import { auth } from '@/lib/firebase';
 
 export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ||
-  (typeof window !== 'undefined' && window.location.hostname !== 'localhost'
-    ? 'https://b-ware-sand.vercel.app/api'
-    : 'http://localhost:5000/api');
+  process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 
 interface FetchOptions extends RequestInit {
   skipAuth?: boolean;

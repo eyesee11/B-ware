@@ -1,0 +1,34 @@
+# ── Global ────────────────────────────────────────────────────────────────────
+node_modules/
+.env
+.env.local
+.env.*.local
+
+# ── Build artifacts ───────────────────────────────────────────────────────────
+*.tsbuildinfo
+.next/
+/out/
+/build/
+dist/
+
+# ── OS / Editor ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# ── Python (nlp-service) ─────────────────────────────────────────────────────
+venv/
+__pycache__/
+*.pyc
