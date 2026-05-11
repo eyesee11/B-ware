@@ -24,14 +24,14 @@ const OUTLET_DOMAINS = {
 exports.getUserOutlets = async (req, res) => {
   try {
     // If not authenticated, return empty list with available outlets
-    if (!req.user || !req.user.id) {
+    if (!req.user || !req.user.uid) {
       return res.json({
         outlets: [],
         available: AVAILABLE_OUTLETS,
       });
     }
 
-    const userId = req.user.id;
+    const userId = req.user.uid;
 
     const [outlets] = await db.query(
       "SELECT outlet_name FROM user_outlet_preferences WHERE user_id = ? ORDER BY outlet_name",
@@ -51,7 +51,7 @@ exports.getUserOutlets = async (req, res) => {
 // Update user's selected outlets
 exports.updateUserOutlets = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user.uid;
     const { outlets } = req.body;
 
     // Validate outlets

@@ -5,7 +5,7 @@ import { trendingApi, outletsApi, claimsApi } from '@/services/api';
 import { useAuth } from '@/hooks/useAuth';
 
 function TrendingContent() {
-  const { token } = useAuth();
+  const { isAuthenticated } = useAuth();
   const initializationRef = useRef(false);
   const [stories, setStories] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -51,9 +51,9 @@ function TrendingContent() {
       setAvailableOutlets(availableData.outlets || []);
 
       // Load user's saved outlets if authenticated
-      if (token) {
+      if (isAuthenticated) {
         try {
-          const userData = await outletsApi.getUserOutlets(token);
+          const userData = await outletsApi.getUserOutlets();
           if (userData.outlets && userData.outlets.length > 0) {
             setSelectedOutlets(userData.outlets);
           } else {
@@ -83,9 +83,9 @@ function TrendingContent() {
     setSelectedOutlets(newOutlets);
 
     // Save to backend if authenticated
-    if (token) {
+    if (isAuthenticated) {
       try {
-        await outletsApi.updateUserOutlets(newOutlets, token);
+        await outletsApi.updateUserOutlets(newOutlets);
       } catch (err) {
         console.error('Failed to save outlet preferences:', err);
       }
@@ -130,7 +130,7 @@ function TrendingContent() {
     try {
       const text = (story.claim_text || story.headline || '') as string;
       console.log('Sending verification request with text:', text);
-      const result = await claimsApi.verify(text, token || undefined);
+      const result = await claimsApi.verify(text);
       console.log('Verification result:', result);
       setVerificationResult(result);
     } catch (err) {

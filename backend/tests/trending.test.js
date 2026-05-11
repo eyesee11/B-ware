@@ -1,112 +1,184 @@
-const request = require("supertest");
+jest.mock('../config/db');
+jest.mock('../config/redis');
+jest.mock('../services/firebaseAdmin');
+jest.mock('../services/nlpService');
+jest.mock('rate-limit-redis', () => ({
+  default: class MockStore {
+    increment = jest.fn().mockResolvedValue({ totalHits: 1, resetTime: new Date() });
+    decrement = jest.fn();
+    resetKey = jest.fn();
+    resetAll = jest.fn();
+  },
+}));
 
-jest.mock("../config/db");
-jest.mock("../config/redis");
-jest.mock("rate-limit-redis", () => {
-  return {
-    default: class MockStore {
-      increment = jest.fn().mockResolvedValue({ totalHits: 1, resetTime: new Date() });
-      decrement = jest.fn();
-      resetKey = jest.fn();
-      resetAll = jest.fn();
-    }
-  };
-});
-jest.mock("../services/nlpService");
+const request = require('supertest');
+const app = require('../server');
+const db = require('../config/db');
+const redis = require('../config/redis');
+const admin = require('../services/firebaseAdmin');
 
-const app = require("../server");
-const db = require("../config/db");
-const redis = require("../config/redis");
-const nlp = require("../services/nlpService");
-const jwt = require("jsonwebtoken");
+const SAMPLE_STORY = {
+  id: 1,
+  headline: 'India GDP grew by 8%',
+  claim_text: 'India GDP grew by 8% in FY2023',
+  source_name: 'BBC',
+  verdict: 'false',
+  confidence: 0.87,
+  danger_score: 82,
+};
 
-describe("Trending API", () => {
-  let token;
-  let adminToken;
+// Returns a mock decoded Firebase token with optional role override
+const mockToken = (role = 'user') =>
+  admin.auth().verifyIdToken.mockResolvedValue({
+    uid: 'user-uid-xyz',
+    email: 'user@example.com',
+    name: 'Test User',
+    picture: null,
+    email_verified: true,
+    role,
+  });
 
+describe('Trending API', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    token = jwt.sign({ id: 1, email: "test@test.com", role: "user", jti: "some-id" }, process.env.JWT_SECRET || "test-secret");
-    adminToken = jwt.sign({ id: 2, email: "admin@test.com", role: "admin", jti: "admin-id" }, process.env.JWT_SECRET || "test-secret");
+    redis.get.mockResolvedValue(null);
+    redis.set.mockResolvedValue('OK');
+    redis.keys.mockResolvedValue([]);
   });
 
-  describe("GET /api/trending", () => {
-    it("should return trending stories", async () => {
-      redis.get.mockResolvedValueOnce(null);
-      // DB call 1: user outlet preferences (empty)
+  // GET /api/trending — optional auth
+  describe('GET /api/trending', () => {
+    it('returns trending stories for an anonymous user', async () => {
+      db.query
+        .mockResolvedValueOnce([[SAMPLE_STORY]])
+        .mockResolvedValueOnce([[{ last_updated: '2024-01-01T00:00:00Z' }]]);
+
+      const res = await request(app).get('/api/trending');
+
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body.stories)).toBe(true);
+      expect(res.body.stories[0].headline).toBe('India GDP grew by 8%');
+    });
+
+    it('applies user outlet preferences when authenticated', async () => {
+      mockToken();
+      db.query
+        .mockResolvedValueOnce([[{ outlet_name: 'BBC' }]])         // user preferences
+        .mockResolvedValueOnce([[SAMPLE_STORY]])                    // filtered stories
+        .mockResolvedValueOnce([[{ last_updated: '2024-01-01T00:00:00Z' }]]);
+
+      const res = await request(app)
+        .get('/api/trending')
+        .set('Authorization', 'Bearer fake-token');
+
+      expect(res.status).toBe(200);
+      expect(res.body.stories).toHaveLength(1);
+    });
+
+    it('returns cached stories without hitting DB', async () => {
+      const cachedResult = { stories: [SAMPLE_STORY], last_updated: null, total: 1 };
+      // No auth token, so only one redis.get call (cache check, not blacklist)
+      redis.get.mockResolvedValueOnce(JSON.stringify(cachedResult));
+
+      const res = await request(app).get('/api/trending');
+
+      expect(res.status).toBe(200);
+      expect(res.body.stories[0].headline).toBe('India GDP grew by 8%');
+      expect(db.query).not.toHaveBeenCalled();
+    });
+
+    it('filters stories by verdict query param', async () => {
+      db.query
+        .mockResolvedValueOnce([[SAMPLE_STORY]])
+        .mockResolvedValueOnce([[{ last_updated: null }]]);
+
+      const res = await request(app).get('/api/trending?verdict=false');
+
+      expect(res.status).toBe(200);
+      expect(db.query).toHaveBeenCalledWith(
+        expect.stringContaining('verdict = ?'),
+        expect.arrayContaining(['false']),
+      );
+    });
+  });
+
+  // GET /api/trending/sources — public
+  describe('GET /api/trending/sources', () => {
+    it('returns source reliability statistics', async () => {
+      db.query.mockResolvedValueOnce([[
+        { source_name: 'BBC', total_claims: 10, false_count: 6, avg_danger_score: 72 },
+        { source_name: 'Reuters', total_claims: 8, false_count: 1, avg_danger_score: 20 },
+      ]]);
+
+      const res = await request(app).get('/api/trending/sources');
+
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body.sources)).toBe(true);
+      expect(res.body.sources[0].source_name).toBe('BBC');
+    });
+
+    it('returns an empty array when no data exists', async () => {
       db.query.mockResolvedValueOnce([[]]);
-      // DB call 2: fetch trending stories
-      db.query.mockResolvedValueOnce([
-        [
-          {
-            id: 1,
-            headline: "Fake News 1",
-            verdict: "false",
-            danger_score: 90,
-            source_name: "BBC"
-          }
-        ]
-      ]);
-      // DB call 3: MAX(fetched_at)
-      db.query.mockResolvedValueOnce([[{ last_updated: "2023-01-01T00:00:00Z" }]]);
-
-      const response = await request(app)
-        .get("/api/trending")
-        .set("Authorization", `Bearer ${token}`);
-
-      expect(response.status).toBe(200);
-      expect(Array.isArray(response.body.stories)).toBe(true);
-      expect(response.body.stories[0].headline).toBe("Fake News 1");
+      const res = await request(app).get('/api/trending/sources');
+      expect(res.status).toBe(200);
+      expect(res.body.sources).toEqual([]);
     });
   });
 
-  describe("GET /api/trending/sources", () => {
-    it("should return source stats", async () => {
-      db.query.mockResolvedValueOnce([[{ source_name: "BBC", count: 10 }]]);
+  // GET /api/trending/:id — public
+  describe('GET /api/trending/:id', () => {
+    it('returns a single trending story by ID', async () => {
+      db.query.mockResolvedValueOnce([[SAMPLE_STORY]]);
 
-      const response = await request(app)
-        .get("/api/trending/sources");
+      const res = await request(app).get('/api/trending/1');
 
-      expect(response.status).toBe(200);
+      expect(res.status).toBe(200);
+      expect(res.body.id).toBe(1);
+      expect(res.body.headline).toBe('India GDP grew by 8%');
+    });
+
+    it('returns 404 if story does not exist or is inactive', async () => {
+      db.query.mockResolvedValueOnce([[]]); // no rows
+
+      const res = await request(app).get('/api/trending/999');
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe('Story not found');
     });
   });
 
-  describe("GET /api/trending/:id", () => {
-    it("should return trending claim by id", async () => {
-      db.query.mockResolvedValueOnce([[{ id: 1, headline: "Fake News" }]]);
-      
-      const response = await request(app)
-        .get("/api/trending/1")
-        .set("Authorization", `Bearer ${token}`);
-        
-      expect(response.status).toBe(200);
-      expect(response.body.id).toBe(1);
+  // POST /api/trending/refresh — requires auth + admin role
+  describe('POST /api/trending/refresh', () => {
+    it('returns 401 with no token', async () => {
+      const res = await request(app).post('/api/trending/refresh');
+      expect(res.status).toBe(401);
     });
 
-    it("should return 404 if not found", async () => {
-      db.query.mockResolvedValueOnce([[]]);
-      const response = await request(app).get("/api/trending/999");
-      expect(response.status).toBe(404);
+    it('returns 403 for a regular (non-admin) user', async () => {
+      mockToken('user');
+      const res = await request(app)
+        .post('/api/trending/refresh')
+        .set('Authorization', 'Bearer fake-token');
+      expect(res.status).toBe(403);
+      expect(res.body.error).toBe('Admin only');
     });
-  });
 
-  describe("POST /api/trending/refresh", () => {
-    it("should initiate refresh", async () => {
-      // Mock runTrendingRefresh internal db query calls? No, test reaches 200 before runTrendingRefresh actually blocks forever? 
-      // Let's mock a fast return. We might need to mock nlp or db inside update!
-      // But let's mock db.query to resolve empty arrays for whatever is called during refresh.
-      db.query.mockResolvedValue([[]]);
-      // The refresh hits NewsAPI, so we could mock axios.
+    it('triggers a refresh for an admin user', async () => {
+      mockToken('admin');
+
+      // Prevent real HTTP calls to NewsAPI/Google
       const axios = require('axios');
-      jest.spyOn(axios, 'get').mockResolvedValue({ data: { articles: [] } });
+      jest.spyOn(axios, 'get').mockResolvedValue({ data: { articles: [], claims: [] } });
 
-      const response = await request(app)
-        .post("/api/trending/refresh")
-        .set("Authorization", `Bearer ${adminToken}`);
+      db.query.mockResolvedValue([[]]); // dedup + deactivate queries
 
-      expect(response.status).toBe(200);
-      expect(response.body).toHaveProperty("refreshed");
+      const res = await request(app)
+        .post('/api/trending/refresh')
+        .set('Authorization', 'Bearer fake-token');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty('refreshed', true);
+      expect(res.body).toHaveProperty('stories_processed');
     });
   });
 });
-

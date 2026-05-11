@@ -1,6 +1,15 @@
 "use client";
 
+import Link from "next/link";
+import { useAuth } from "@/hooks/useAuth";
+
 export default function AppHeader() {
+  const { user } = useAuth();
+
+  const handleNotificationClick = () => {
+    alert("No new notifications");
+  };
+
   return (
     <header className="fixed top-0 z-50 flex justify-between items-center w-full px-8 h-16 bg-white border-b border-slate-100">
       <div className="flex items-center gap-8">
@@ -15,16 +24,25 @@ export default function AppHeader() {
         </div>
       </div>
       <div className="flex items-center gap-4">
-        <button className="p-2 hover:bg-slate-50 transition-colors">
+        <button 
+          onClick={handleNotificationClick}
+          className="p-2 hover:bg-slate-50 transition-colors"
+        >
           <span className="material-symbols-outlined text-on-surface-variant">notifications</span>
         </button>
-        <div className="h-8 w-8 bg-surface-container-highest overflow-hidden">
-          <img
-            src="https://lh3.googleusercontent.com/aida-public/AB6AXuAg57JHPNtlrH1PvOYARLi2aRjdxYXGIk-XVQ3H7gp6ar4P9VwLbk8-vOGvXMd8udoT6w7VGVAooIw8sdqv_7t1BK2L0hquP9w8aGPm78aDxWl55ZSMQLMrLIphlCBOgzdGIf4yiJm52E7deq9m5kK9R-ZHgc9fNtWdSof3WNX0S88wCwnUSVR3PewMiEcRuNh_uKoF1mdmOKxKuuIT0bcvff_wmkG3p9WYqxgKofus40kRVe_Ohn89ndCT8cC_PwVF6rUlRQ0kdHRf"
-            alt="Analyst Profile"
-            className="w-full h-full object-cover"
-          />
-        </div>
+        <Link href="/profile" className="h-8 w-8 bg-surface-container-highest overflow-hidden hover:opacity-80 transition-opacity">
+          {user?.avatar_url ? (
+            <img
+              src={user.avatar_url}
+              alt={user.name || "Profile"}
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center bg-red-600 text-white font-bold text-xs uppercase">
+              {user?.name?.charAt(0).toUpperCase() || "U"}
+            </div>
+          )}
+        </Link>
       </div>
     </header>
   );

@@ -3,6 +3,23 @@ const db = require("../config/db"); // mysql database connection
 const redis = require("../config/redis"); // redis used for caching results
 const nlp = require("../services/nlpService"); // service which calls NLP verification API
 
+// Auto-upsert Firebase user into MySQL so claims FK never fails
+// Safe to call every time — uses INSERT IGNORE to avoid duplicates
+async function ensureUserExists(user) {
+  if (!user?.uid) return;
+  try {
+    await db.query(
+      `INSERT INTO users (firebase_uid, email, name, role, created_at)
+       VALUES (?, ?, ?, 'user', NOW())
+       ON DUPLICATE KEY UPDATE last_seen_at = NOW()`,
+      [user.uid, user.email || null, user.name || null]
+    );
+  } catch (e) {
+    // Non-fatal — log and continue; claim will store user_id as NULL if FK fails
+    console.warn("[ensureUserExists] Could not upsert user:", e.message);
+  }
+}
+
 // create hash of claim text so we can cache same claim results
 function hashText(text) {
   return crypto
@@ -29,7 +46,7 @@ async function runVerify(req, res, endpoint) {
       .json({ error: "Claim text too long (max 2000 chars)" });
   }
 
-  const userId = req.user?.id || null;
+  const userId = req.user?.uid || null;
   const hash = hashText(text);
 
   // check if result already exists in redis cache
@@ -56,6 +73,9 @@ async function runVerify(req, res, endpoint) {
   let claimId;
 
   try {
+    // Ensure the Firebase user exists in MySQL before inserting claim
+    await ensureUserExists(req.user);
+
     // first insert claim in database with pending status
     const [ins] = await db.query(
       "INSERT INTO claims (user_id, original_text, status) VALUES (?, ?, ?)",
@@ -181,7 +201,7 @@ async function runVerify(req, res, endpoint) {
     }
 
     if (!err.status || err.message.includes("timeout")) {
-      return res.status(504).json({ error: "NLP Service is starting up (takes ~2 mins). Please try again in a moment." });
+      return res.status(504).json({ error: "NLP Service is starting up (takes up to 5 mins). Please try again in a moment." });
     }
 
     res.status(500).json({
@@ -198,7 +218,7 @@ exports.submitDeep = (req, res) => runVerify(req, res, "/verify/deep");
 // batch verification endpoint - processes multiple claims at once
 exports.submitBatch = async (req, res) => {
   const claims = req.body.claims || [];
-  const userId = req.user.id;
+  const userId = req.user.uid;
 
   console.log("🔹 Batch verify request received");
   console.log("   Claims count:", claims.length);
@@ -230,6 +250,9 @@ exports.submitBatch = async (req, res) => {
   const results = [];
 
   try {
+    // Ensure the Firebase user exists in MySQL before inserting any claims
+    await ensureUserExists(req.user);
+
     // process each claim
     for (const text of sanitized) {
       const hash = hashText(text);
@@ -409,18 +432,20 @@ exports.getUserClaims = async (req, res) => {
 
   try {
     const [rows] = await db.query(
-      `SELECT id, original_text, extracted_metric, extracted_value,
-              extracted_year, credibility_score, status, created_at
-       FROM claims
-       WHERE user_id = ?
-       ORDER BY created_at DESC
+      `SELECT c.id, c.original_text, c.extracted_metric, c.extracted_value,
+              c.extracted_year, c.credibility_score, c.status, c.created_at,
+              v.verdict, v.confidence, v.explanation
+       FROM claims c
+       LEFT JOIN verification_log v ON v.claim_id = c.id
+       WHERE c.user_id = ?
+       ORDER BY c.created_at DESC
        LIMIT ? OFFSET ?`,
-      [req.user.id, limit, offset],
+      [req.user.uid, limit, offset],
     );
 
     const [[{ total }]] = await db.query(
       "SELECT COUNT(*) as total FROM claims WHERE user_id = ?",
-      [req.user.id],
+      [req.user.uid],
     );
 
     res.json({
@@ -449,7 +474,7 @@ exports.getClaimById = async (req, res) => {
        FROM claims c
        LEFT JOIN verification_log v ON v.claim_id = c.id
        WHERE c.id = ? AND c.user_id = ?`,
-      [req.params.id, req.user.id],
+      [req.params.id, req.user.uid],
     );
 
     if (!rows[0]) return res.status(404).json({ error: "Claim not found" });
@@ -475,7 +500,7 @@ exports.getClaimById = async (req, res) => {
 
 // statistics of user claims
 exports.getStats = async (req, res) => {
-  const cacheKey = `stats_cache:${req.user.id}`;
+  const cacheKey = `stats_cache:${req.user.uid}`;
 
   // check if stats exist in redis
   let cached = null;
@@ -497,7 +522,7 @@ exports.getStats = async (req, res) => {
        JOIN verification_log v ON v.claim_id = c.id
        WHERE c.user_id = ?
        GROUP BY v.verdict`,
-      [req.user.id],
+      [req.user.uid],
     );
 
     const [[{ total, avg_conf }]] = await db.query(
@@ -505,7 +530,7 @@ exports.getStats = async (req, res) => {
        FROM claims c
        JOIN verification_log v ON v.claim_id = c.id
        WHERE c.user_id = ?`,
-      [req.user.id],
+      [req.user.uid],
     );
 
     const counts = {

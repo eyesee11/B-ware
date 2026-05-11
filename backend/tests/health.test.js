@@ -1,57 +1,75 @@
-const request = require("supertest");
+jest.mock('../config/db');
+jest.mock('../config/redis');
+jest.mock('../services/firebaseAdmin');
+jest.mock('rate-limit-redis', () => ({
+  default: class MockStore {
+    increment = jest.fn().mockResolvedValue({ totalHits: 1, resetTime: new Date() });
+    decrement = jest.fn();
+    resetKey = jest.fn();
+    resetAll = jest.fn();
+  },
+}));
 
-jest.mock("../config/db");
-jest.mock("../config/redis");
-jest.mock("rate-limit-redis", () => {
-  return {
-    default: class MockStore {
-      increment = jest.fn().mockResolvedValue({ totalHits: 1, resetTime: new Date() });
-      decrement = jest.fn();
-      resetKey = jest.fn();
-      resetAll = jest.fn();
-    }
-  };
-});
+const request = require('supertest');
+const app = require('../server');
+const db = require('../config/db');
+const redis = require('../config/redis');
 
-const app = require("../server");
+describe('Health API', () => {
+  beforeEach(() => jest.clearAllMocks());
 
-
-const db = require("../config/db");
-const redis = require("../config/redis");
-
-describe("Health API", () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
-
-  it("should return healthy when db and redis are up", async () => {
+  it('returns healthy when DB and Redis are both up', async () => {
     db.query.mockResolvedValue([[{ 1: 1 }]]);
-    redis.ping.mockResolvedValue("PONG");
+    redis.ping.mockResolvedValue('PONG');
 
-    const response = await request(app).get("/api/health");
-    expect(response.status).toBe(200);
-    expect(response.body.status).toBe("healthy");
-    expect(response.body.mysql).toBe("ok");
-    expect(response.body.redis).toBe("ok");
+    const res = await request(app).get('/api/health');
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('healthy');
+    expect(res.body.mysql).toBe('ok');
+    expect(res.body.redis).toBe('ok');
+    expect(res.body).toHaveProperty('timestamp');
   });
 
-  it("should return degraded when db is down", async () => {
-    db.query.mockRejectedValue(new Error("DB Down"));
-    redis.ping.mockResolvedValue("PONG");
+  it('returns degraded when DB is down', async () => {
+    db.query.mockRejectedValue(new Error('DB Down'));
+    redis.ping.mockResolvedValue('PONG');
 
-    const response = await request(app).get("/api/health");
-    expect(response.status).toBe(200);
-    expect(response.body.status).toBe("degraded");
-    expect(response.body.mysql).toBe("down");
+    const res = await request(app).get('/api/health');
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('degraded');
+    expect(res.body.mysql).toBe('down');
+    expect(res.body.redis).toBe('ok');
   });
 
-  it("should return degraded when redis is down", async () => {
+  it('returns degraded when Redis is down', async () => {
     db.query.mockResolvedValue([[{ 1: 1 }]]);
-    redis.ping.mockRejectedValue(new Error("Redis Down"));
+    redis.ping.mockRejectedValue(new Error('Redis Down'));
 
-    const response = await request(app).get("/api/health");
-    expect(response.status).toBe(200);
-    expect(response.body.status).toBe("degraded");
-    expect(response.body.redis).toBe("down");
+    const res = await request(app).get('/api/health');
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('degraded');
+    expect(res.body.mysql).toBe('ok');
+    expect(res.body.redis).toBe('down');
+  });
+
+  it('returns degraded when both DB and Redis are down', async () => {
+    db.query.mockRejectedValue(new Error('DB Down'));
+    redis.ping.mockRejectedValue(new Error('Redis Down'));
+
+    const res = await request(app).get('/api/health');
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('degraded');
+    expect(res.body.mysql).toBe('down');
+    expect(res.body.redis).toBe('down');
+  });
+
+  it('returns 404 for unknown routes', async () => {
+    const res = await request(app).get('/api/nonexistent');
+    expect(res.status).toBe(404);
+    expect(res.body.error).toBeDefined();
   });
 });

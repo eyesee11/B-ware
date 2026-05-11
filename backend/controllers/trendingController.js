@@ -4,6 +4,19 @@ const nlp = require("../services/nlpService"); // service to call NLP verificati
 const axios = require("axios"); // used to fetch news from NewsAPI
 const crypto = require("crypto"); // used to hash url
 
+// Convert ISO 8601 string (e.g. "2026-05-02T07:11:27Z") to MySQL DATETIME format
+function normalizeDate(dateStr) {
+  if (!dateStr) return null;
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return null;
+    // Format: "YYYY-MM-DD HH:MM:SS"
+    return d.toISOString().slice(0, 19).replace("T", " ");
+  } catch {
+    return null;
+  }
+}
+
 /*
   function to calculate danger score for a story
 
@@ -54,7 +67,7 @@ exports.getTrending = async (req, res) => {
     try {
       const [outlets] = await db.query(
         "SELECT outlet_name FROM user_outlet_preferences WHERE user_id = ?",
-        [req.user.id]
+        [req.user.uid]
       );
       if (outlets.length > 0) {
         sources = outlets.map(o => o.outlet_name);
@@ -323,36 +336,61 @@ async function runTrendingRefresh() {
 
   let processed = 0;
   console.log(`Articles from NewsAPI+FactCheck: ${articles.length}, Fresh: ${fresh.length}`);
+
   // process each new article
   for (const article of fresh) {
     try {
-      // analyze article text to extract claims
-      const { data: analysis } = await nlp.post("/analyze", {
-        text: article.content,
-      });
+      // Try to get NLP analysis, but don't block on it
+      let claimText = article.content || article.headline;
+      let verdict = "unverifiable";
+      let confidence = 0.5;
+      let tierUsed = "tier0";
+      let explanation = null;
+      let officialValue = null;
+      let claimedValue = null;
+      let pctError = null;
+      let metric = null;
+      let evidenceJson = "[]";
 
-      // pick claim with highest confidence
-      const top = analysis.results?.sort(
-        (a, b) => b.extraction.confidence - a.extraction.confidence,
-      )[0];
+      try {
+        // analyze article text to extract claims (short timeout so we don't block)
+        const { data: analysis } = await nlp.post("/analyze", {
+          text: article.content,
+        }, { timeout: 30000 });
 
-      if (!top || top.extraction.confidence < 0.3) continue;
+        // pick claim with highest confidence
+        const top = analysis.results?.sort(
+          (a, b) => b.extraction.confidence - a.extraction.confidence,
+        )[0];
 
-      // verify the extracted claim
-      const { data: result } = await nlp.post("/verify", {
-        text: top.sentence,
-      });
+        if (top && top.extraction.confidence >= 0.3) {
+          claimText = top.sentence;
 
-      // allow all verdicts to be saved, skip only if it failed completely
-      if (!result.verdict) continue;
-      const score = calcDangerScore(
-        result.verdict,
-        result.confidence,
-        article.published_at,
-        result.evidence?.length || 1,
-      );
+          // verify the extracted claim
+          const { data: result } = await nlp.post("/verify", {
+            text: top.sentence,
+          }, { timeout: 30000 });
 
-      // save trending story
+          if (result.verdict) {
+            verdict = result.verdict;
+            confidence = result.confidence || 0.5;
+            tierUsed = result.tier_used || "tier1";
+            explanation = result.explanation || null;
+            officialValue = result.official_value || null;
+            claimedValue = result.extracted_value || null;
+            pctError = result.percentage_error || null;
+            metric = result.extracted_metric || null;
+            evidenceJson = JSON.stringify(result.evidence || []);
+          }
+        }
+      } catch (nlpErr) {
+        // NLP failed (cold start / timeout) — save article without NLP enrichment
+        console.log(`  NLP unavailable for "${article.headline?.slice(0, 50)}", saving without analysis`);
+      }
+
+      const score = calcDangerScore(verdict, confidence, article.published_at, 1);
+
+      // save trending story (even without NLP analysis)
       await db.query(
         `INSERT INTO trending_stories
            (headline, claim_text, source_name, source_url, url_hash, published_at,
@@ -361,21 +399,21 @@ async function runTrendingRefresh() {
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           article.headline,
-          top.sentence,
+          claimText,
           article.source_name,
           article.source_url,
           article.urlHash,
-          article.published_at || null,
-          result.verdict,
-          result.confidence,
+          normalizeDate(article.published_at),
+          verdict,
+          confidence,
           score,
-          result.extracted_metric,
-          result.official_value,
-          result.extracted_value,
-          result.percentage_error,
-          result.explanation,
-          JSON.stringify(result.evidence || []),
-          result.tier_used,
+          metric,
+          officialValue,
+          claimedValue,
+          pctError,
+          explanation,
+          evidenceJson,
+          tierUsed,
         ],
       );
 
@@ -392,12 +430,14 @@ async function runTrendingRefresh() {
   );
 
   // clear redis cache for trending feed (use pipeline to avoid arg-count limits)
-  const keys = await redis.keys("trending_feed:*");
-  if (keys.length > 0) {
-    const pipeline = redis.pipeline();
-    keys.forEach((k) => pipeline.del(k));
-    await pipeline.exec();
-  }
+  try {
+    const keys = await redis.keys("trending_feed:*");
+    if (keys.length > 0) {
+      const pipeline = redis.pipeline();
+      keys.forEach((k) => pipeline.del(k));
+      await pipeline.exec();
+    }
+  } catch { /* redis down */ }
 
   console.log(`Trending refresh done: ${processed} new stories`);
 
