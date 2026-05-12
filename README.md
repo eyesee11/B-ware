@@ -144,7 +144,7 @@ It doesn't just tell you **true or false**. It shows you:
 └────────────┘    └────────────┘    └──────────────────┘
 ```
 
-![Architecture Diagram](docs/images/architecture-diagram.png)
+![Architecture Diagram](/architecture-diagram.png)
 
 ---
 
@@ -185,8 +185,6 @@ Claim: "India's GDP growth rate was 7.5% in 2024"
 | 5% – 20% | **Misleading**   | Orange   |
 | ≥ 20%    | **False**        | Red      |
 | No data  | **Unverifiable** | Gray     |
-
-![Verdict Card](docs/images/verdict-card.png)
 
 ---
 
@@ -379,9 +377,9 @@ full_stack/
 │   └── tests/
 │       ├── conftest.py            ← autouse fixture: clears L1 result cache between tests
 │       ├── test_extractor.py      ← 33 test cases (extraction + claim detector)
-│       ├── test_tier2_nli.py      ← Tier 2 NLI tests (mocked)
-│       ├── test_tier3_llm.py      ← Tier 3 LLM tests (mocked)
-│       └── test_verdict_router.py ← Router logic tests (mocked)
+│       ├── test_tier2_nli.py      ← Tier 2 NLI tests 
+│       ├── test_tier3_llm.py      ← Tier 3 LLM tests 
+│       └── test_verdict_router.py ← Router logic tests
 │
 ├── frontend/                          ← React 18 + Next.js app COMPLETE
 │   ├── package.json
