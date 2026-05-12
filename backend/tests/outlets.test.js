@@ -1,87 +1,145 @@
-const request = require("supertest");
+jest.mock('../config/db');
+jest.mock('../config/redis');
+jest.mock('../services/firebaseAdmin');
+jest.mock('rate-limit-redis', () => ({
+  default: class MockStore {
+    increment = jest.fn().mockResolvedValue({ totalHits: 1, resetTime: new Date() });
+    decrement = jest.fn();
+    resetKey = jest.fn();
+    resetAll = jest.fn();
+  },
+}));
 
-jest.mock("../config/db");
-jest.mock("../config/redis");
-jest.mock("rate-limit-redis", () => {
-  return {
-    default: class MockStore {
-      increment = jest.fn().mockResolvedValue({ totalHits: 1, resetTime: new Date() });
-      decrement = jest.fn();
-      resetKey = jest.fn();
-      resetAll = jest.fn();
-    }
-  };
-});
+const request = require('supertest');
+const app = require('../server');
+const db = require('../config/db');
+const redis = require('../config/redis');
+const admin = require('../services/firebaseAdmin');
 
-const app = require("../server");
-const db = require("../config/db");
-const jwt = require("jsonwebtoken");
+const AVAILABLE_OUTLETS = ['Bloomberg', 'The Guardian', 'BBC', 'Reuters', 'Wall Street Journal', 'Financial Times'];
 
-describe("Outlets API", () => {
-  let token;
+const mockAuth = () =>
+  admin.auth().verifyIdToken.mockResolvedValue({
+    uid: 'user-uid-outlets',
+    email: 'user@example.com',
+    name: 'Outlet User',
+    picture: null,
+    email_verified: true,
+  });
 
+describe('Outlets API', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    token = jwt.sign({ id: 1, email: "test@test.com", role: "user", jti: "some-id" }, process.env.JWT_SECRET || "test-secret");
+    redis.get.mockResolvedValue(null);
   });
 
-  describe("GET /api/outlets", () => {
-    it("should return available outlets and user outlets if authenticated", async () => {
-      db.query.mockResolvedValueOnce([[{ outlet_name: "BBC" }, { outlet_name: "Reuters" }]]);
-
-      const response = await request(app)
-        .get("/api/outlets")
-        .set("Authorization", `Bearer ${token}`);
-
-      expect(response.status).toBe(200);
-      expect(response.body.outlets).toEqual(["BBC", "Reuters"]);
-      expect(response.body.available).toContain("BBC");
-    });
-
-    it("should handle unauthenticated request to getUserOutlets", async () => {
-      // Depending on optional vs required middleware for this route. 
-      // If it requires auth, it might just 401. Let's see if we pass without token.
-      const response = await request(app).get("/api/outlets");
-      // Could be 401 if requireAuth is used, or 200 with empty outlets if optionalAuth is used.
-      // Based on controller it checks !req.user so it handles optionalAuth. 
-      // Need to see routes to be sure. Assuming it returns 401 or 200.
+  // GET /api/outlets/available — public, no auth needed
+  describe('GET /api/outlets/available', () => {
+    it('returns all 6 available outlets', async () => {
+      const res = await request(app).get('/api/outlets/available');
+      expect(res.status).toBe(200);
+      expect(res.body.outlets).toEqual(AVAILABLE_OUTLETS);
+      expect(res.body.outlets).toHaveLength(6);
     });
   });
 
-  describe("POST /api/outlets", () => {
-    it("should update user outlets successfully", async () => {
-      db.query.mockResolvedValueOnce([[]]); // DELETE
-      db.query.mockResolvedValueOnce([[]]); // INSERT
+  // GET /api/outlets/ — optional auth
+  describe('GET /api/outlets/', () => {
+    it('returns empty outlets for unauthenticated users (no DB call)', async () => {
+      const res = await request(app).get('/api/outlets/');
+      expect(res.status).toBe(200);
+      expect(res.body.outlets).toEqual([]);
+      expect(res.body.available).toEqual(AVAILABLE_OUTLETS);
+      expect(db.query).not.toHaveBeenCalled();
+    });
 
-      const response = await request(app)
-        .post("/api/outlets")
-        .set("Authorization", `Bearer ${token}`)
-        .send({ outlets: ["BBC", "Reuters"] });
+    it('returns the user\'s selected outlets from DB', async () => {
+      mockAuth();
+      db.query.mockResolvedValueOnce([[{ outlet_name: 'BBC' }, { outlet_name: 'Reuters' }]]);
 
-      expect(response.status).toBe(200);
-      expect(response.body.success).toBe(true);
+      const res = await request(app)
+        .get('/api/outlets/')
+        .set('Authorization', 'Bearer fake-token');
+
+      expect(res.status).toBe(200);
+      expect(res.body.outlets).toEqual(['BBC', 'Reuters']);
+    });
+
+    it('returns empty array if user has no preferences set', async () => {
+      mockAuth();
+      db.query.mockResolvedValueOnce([[]]); // no preferences
+      const res = await request(app)
+        .get('/api/outlets/')
+        .set('Authorization', 'Bearer fake-token');
+      expect(res.status).toBe(200);
+      expect(res.body.outlets).toEqual([]);
+    });
+  });
+
+  // POST /api/outlets/ — requires auth
+  describe('POST /api/outlets/', () => {
+    it('saves new outlet preferences (DELETE then INSERT)', async () => {
+      mockAuth();
+      db.query.mockResolvedValueOnce([[]]).mockResolvedValueOnce([[]]);
+
+      const res = await request(app)
+        .post('/api/outlets/')
+        .set('Authorization', 'Bearer fake-token')
+        .send({ outlets: ['BBC', 'Reuters'] });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.outlets).toEqual(['BBC', 'Reuters']);
       expect(db.query).toHaveBeenCalledTimes(2);
     });
 
-    it("should fail on invalid outlets", async () => {
-      const response = await request(app)
-        .post("/api/outlets")
-        .set("Authorization", `Bearer ${token}`)
-        .send({ outlets: ["InvalidOutlet"] });
+    it('clears all preferences when empty array is sent', async () => {
+      mockAuth();
+      db.query.mockResolvedValueOnce([[]]); // only DELETE
 
-      expect(response.status).toBe(400);
-      expect(response.body.error).toContain("Invalid outlets");
+      const res = await request(app)
+        .post('/api/outlets/')
+        .set('Authorization', 'Bearer fake-token')
+        .send({ outlets: [] });
+
+      expect(res.status).toBe(200);
+      expect(res.body.outlets).toEqual([]);
+      expect(db.query).toHaveBeenCalledTimes(1);
     });
-  });
 
-  describe("GET /api/outlets/available", () => {
-    it("should return the list of available outlets", async () => {
-      const response = await request(app)
-        .get("/api/outlets/available")
-        .set("Authorization", `Bearer ${token}`);
-        
-      expect(response.status).toBe(200);
-      expect(Array.isArray(response.body.outlets)).toBe(true);
+    it('returns 400 for invalid outlet names', async () => {
+      mockAuth();
+      const res = await request(app)
+        .post('/api/outlets/')
+        .set('Authorization', 'Bearer fake-token')
+        .send({ outlets: ['FakeNews Daily'] });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('Invalid outlets');
+    });
+
+    it('returns 400 if outlets is not an array', async () => {
+      mockAuth();
+      const res = await request(app)
+        .post('/api/outlets/')
+        .set('Authorization', 'Bearer fake-token')
+        .send({ outlets: 'BBC' });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('outlets must be an array');
+    });
+
+    it('returns 400 if any outlet in the list is invalid', async () => {
+      mockAuth();
+      const res = await request(app)
+        .post('/api/outlets/')
+        .set('Authorization', 'Bearer fake-token')
+        .send({ outlets: ['BBC', 'InvalidSource'] });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('InvalidSource');
+    });
+
+    it('returns 401 with no auth token', async () => {
+      const res = await request(app).post('/api/outlets/').send({ outlets: ['BBC'] });
+      expect(res.status).toBe(401);
     });
   });
 });

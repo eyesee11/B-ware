@@ -1,76 +1,45 @@
 /**
- * API Client Service - Handles all HTTP communication with the backend
- * Automatically injects JWT token from localStorage
+ * API Client — injects Firebase ID token automatically on every request
  */
+import { auth } from '@/lib/firebase';
 
-// Point to localhost for local development, deployed backend for production
-const API_BASE_URL = typeof window !== 'undefined' && window.location.hostname === 'localhost'
-  ? 'http://localhost:5000/api'
-  : 'https://b-ware-sand.vercel.app/api';
-
-// DEBUG: Log all environment variables
-if (typeof window !== 'undefined') {
-  console.log('All process.env:', process.env);
-}
-
-// Debug: Log the API base URL to verify it's correct
-if (typeof window !== 'undefined') {
-  console.log('API_BASE_URL set to:', API_BASE_URL);
-}
+export const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 
 interface FetchOptions extends RequestInit {
-  token?: string;
+  skipAuth?: boolean;
 }
 
-interface ApiResponse<T = any> {
-  success: boolean;
-  data?: T;
-  error?: string;
-}
-
-/**
- * Generic fetch wrapper with automatic token injection
- */
-async function apiCall<T = any>(
-  endpoint: string,
-  options: FetchOptions = {}
-): Promise<T> {
-  const { token, headers: customHeaders, ...fetchOptions } = options;
-
-  // Get token from localStorage if not provided
-  const authToken = token || (typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null);
+/** Generic fetch wrapper — auto-injects Firebase ID token */
+async function apiCall<T = any>(endpoint: string, options: FetchOptions = {}): Promise<T> {
+  const { skipAuth = false, headers: customHeaders, ...fetchOptions } = options;
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    ...(customHeaders as Record<string, string>),
   };
 
-  // Merge custom headers if provided
-  if (customHeaders && typeof customHeaders === 'object' && !Array.isArray(customHeaders)) {
-    Object.assign(headers, customHeaders);
-  }
-
-  if (authToken) {
-    headers['Authorization'] = `Bearer ${authToken}`;
+  // Inject Firebase ID token (auto-refreshed by Firebase SDK)
+  if (!skipAuth && auth.currentUser) {
+    try {
+      const idToken = await auth.currentUser.getIdToken();
+      headers['Authorization'] = `Bearer ${idToken}`;
+    } catch {
+      // If token retrieval fails, proceed without auth header
+    }
   }
 
   const url = `${API_BASE_URL}${endpoint}`;
 
   try {
-    const response = await fetch(url, {
-      ...fetchOptions,
-      headers,
-    });
+    const response = await fetch(url, { ...fetchOptions, headers });
 
-    // Handle non-2xx responses
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
       throw new Error(errorData.error || `HTTP ${response.status}`);
     }
 
-    // Return parsed JSON if response has content
-    if (response.status !== 204) {
-      return await response.json();
-    }
+    if (response.status !== 204) return await response.json();
     return {} as T;
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
@@ -79,165 +48,77 @@ async function apiCall<T = any>(
   }
 }
 
-/**
- * Authentication API endpoints
- */
+/** Auth endpoints */
 export const authApi = {
-  register: async (name: string, email: string, password: string) => {
-    return apiCall('/auth/register', {
-      method: 'POST',
-      body: JSON.stringify({ name, email, password }),
-    });
-  },
+  /** Sync Firebase user → MySQL after login */
+  sync: async () => apiCall('/auth/sync', { method: 'POST' }),
 
-  login: async (email: string, password: string) => {
-    return apiCall('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email, password }),
-    });
-  },
+  /** Get current user profile from MySQL */
+  getMe: async () => apiCall('/auth/me', { method: 'GET' }),
 
-  logout: async (token: string) => {
-    return apiCall('/auth/logout', {
-      method: 'POST',
-      token,
-    });
-  },
+  /** Logout: revoke Firebase tokens + Redis session */
+  logout: async () => apiCall('/auth/logout', { method: 'POST' }),
 
-  getMe: async (token?: string) => {
-    return apiCall('/auth/me', {
-      method: 'GET',
-      token,
-    });
-  },
+  /** Forgot password — triggers Nodemailer branded email */
+  forgotPassword: async (email: string) =>
+    apiCall('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+      skipAuth: true,
+    }),
+
+  /** Resend email verification link */
+  resendVerification: async () =>
+    apiCall('/auth/verify-email', { method: 'POST' }),
+
+  /** Get live email verified status from Firebase */
+  getVerifiedStatus: async () =>
+    apiCall('/auth/verify-email/status', { method: 'GET' }),
 };
 
-/**
- * Claims verification API endpoints
- */
+/** Claims verification */
 export const claimsApi = {
-  verify: async (text: string, token?: string) => {
-    return apiCall('/claims/verify', {
-      method: 'POST',
-      body: JSON.stringify({ text }),
-      token,
-    });
-  },
+  verify: async (text: string) =>
+    apiCall('/claims/verify', { method: 'POST', body: JSON.stringify({ text }) }),
 
-  quick: async (text: string) => {
-    return apiCall('/claims/quick', {
-      method: 'POST',
-      body: JSON.stringify({ text }),
-    });
-  },
+  quick: async (text: string) =>
+    apiCall('/claims/quick', { method: 'POST', body: JSON.stringify({ text }) }),
 
-  deep: async (text: string) => {
-    return apiCall('/claims/deep', {
-      method: 'POST',
-      body: JSON.stringify({ text }),
-    });
-  },
+  deep: async (text: string) =>
+    apiCall('/claims/deep', { method: 'POST', body: JSON.stringify({ text }) }),
 
-  batch: async (claims: string[]) => {
-    return apiCall('/claims/batch', {
-      method: 'POST',
-      body: JSON.stringify({ claims }),
-    });
-  },
+  batch: async (claims: string[]) =>
+    apiCall('/claims/batch', { method: 'POST', body: JSON.stringify({ claims }) }),
 
-  getHistory: async (page: number = 1, limit: number = 20) => {
+  getHistory: async (page = 1, limit = 20) => {
     const params = new URLSearchParams({ page: String(page), limit: String(limit) });
-    return apiCall(`/claims?${params}`, {
-      method: 'GET',
-    });
+    return apiCall(`/claims?${params}`, { method: 'GET' });
   },
 
-  getById: async (id: string | number) => {
-    return apiCall(`/claims/${id}`, {
-      method: 'GET',
-    });
-  },
+  getById: async (id: string | number) => apiCall(`/claims/${id}`, { method: 'GET' }),
 
-  getStats: async () => {
-    return apiCall('/claims/stats', {
-      method: 'GET',
-    });
-  },
+  getStats: async () => apiCall('/claims/stats', { method: 'GET' }),
 };
 
-
-
-/**
- * Trending topics API endpoints
- */
+/** Trending topics */
 export const trendingApi = {
-  getTrending: async (filter: string = 'all', limit: number = 20, sources?: string[]) => {
+  getTrending: async (filter = 'all', limit = 20, sources?: string[]) => {
     const params = new URLSearchParams({ filter, limit: String(limit) });
-    if (sources && sources.length > 0) {
-      params.append('sources', sources.join(','));
-    }
-    return apiCall(`/trending?${params}`, {
-      method: 'GET',
-    });
+    if (sources?.length) params.append('sources', sources.join(','));
+    return apiCall(`/trending?${params}`, { method: 'GET' });
   },
-
-  getById: async (id: string | number) => {
-    return apiCall(`/trending/${id}`, {
-      method: 'GET',
-    });
-  },
-
-  getSourceStats: async () => {
-    return apiCall('/trending/sources', {
-      method: 'GET',
-    });
-  },
-
-  refresh: async (token: string) => {
-    return apiCall('/trending/refresh', {
-      method: 'POST',
-      token,
-    });
-  },
-
-  getTrendingById: async (id: string) => {
-    return apiCall(`/trending/${id}`, {
-      method: 'GET',
-    });
-  },
-
-  refreshTrending: async (token: string) => {
-    return apiCall('/trending/refresh', {
-      method: 'POST',
-      token,
-    });
-  },
+  getById: async (id: string | number) => apiCall(`/trending/${id}`, { method: 'GET' }),
+  getSourceStats: async () => apiCall('/trending/sources', { method: 'GET' }),
+  getLive: async () => apiCall('/trending/live', { method: 'GET', skipAuth: true }),
+  refresh: async () => apiCall('/trending/refresh', { method: 'POST' }),
 };
 
-/**
- * Outlet/source preferences API endpoints
- */
+/** Outlet preferences */
 export const outletsApi = {
-  getAvailable: async () => {
-    return apiCall('/outlets/available', {
-      method: 'GET',
-    });
-  },
-
-  getUserOutlets: async (token?: string) => {
-    return apiCall('/outlets', {
-      method: 'GET',
-      token,
-    });
-  },
-
-  updateUserOutlets: async (outlets: string[], token?: string) => {
-    return apiCall('/outlets', {
-      method: 'POST',
-      body: JSON.stringify({ outlets }),
-      token,
-    });
-  },
+  getAvailable: async () => apiCall('/outlets/available', { method: 'GET' }),
+  getUserOutlets: async () => apiCall('/outlets', { method: 'GET' }),
+  updateUserOutlets: async (outlets: string[]) =>
+    apiCall('/outlets', { method: 'POST', body: JSON.stringify({ outlets }) }),
 };
 
-export { apiCall, API_BASE_URL };
+export { apiCall };

@@ -5,7 +5,7 @@ const axios = require("axios");
 
 const nlp = axios.create({
   baseURL: process.env.NLP_SERVICE_URL || "https://eyesee11-b-ware.hf.space",
-  timeout: 120000, 
+  timeout: 300000, 
   headers: {
     "Content-Type": "application/json", 
   },

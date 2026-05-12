@@ -1,39 +1,39 @@
-const jwt = require("jsonwebtoken");
-const redis = require("../config/redis");
+const admin = require('../services/firebaseAdmin');
+const redis = require('../config/redis');
 
+// Same as auth.js but never rejects — sets req.user if token is valid, otherwise continues anonymously
 module.exports = async function optionalAuth(req, res, next) {
-  const header = req.headers["authorization"];
-  
-  // If no auth header, continue without user info
-  if (!header?.startsWith("Bearer ")) {
-    return next();
+  const header = req.headers['authorization'];
+
+  if (!header?.startsWith('Bearer ')) {
+    return next(); // no token — continue as guest
   }
 
-  const token = header.split(" ")[1];
+  const idToken = header.split(' ')[1];
+
   let decoded;
   try {
-    decoded = jwt.verify(token, process.env.JWT_SECRET);
+    decoded = await admin.auth().verifyIdToken(idToken);
   } catch {
-    // Invalid token, continue without user info
-    return next();
+    return next(); // invalid token — continue as guest
   }
 
   try {
-    const blacklisted = await redis.get(`jwt_blacklist:${decoded.jti}`);
+    const blacklisted = await redis.get(`session_blacklist:${decoded.uid}`);
     if (blacklisted) {
-      // Token revoked, continue without user info
-      return next();
+      return next(); // session revoked — treat as guest
     }
   } catch {
-    // Redis unavailable, continue anyway
+    // Redis down — continue anyway
   }
 
   req.user = {
-    id: decoded.id,
+    uid: decoded.uid,
     email: decoded.email,
-    role: decoded.role,
-    jti: decoded.jti,
-    exp: decoded.exp,
+    name: decoded.name || decoded.email?.split('@')[0] || 'Analyst',
+    picture: decoded.picture || null,
+    email_verified: decoded.email_verified || false,
+    role: decoded.role || 'user',
   };
 
   next();

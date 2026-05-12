@@ -4,8 +4,22 @@ import { useState, useEffect, useRef } from 'react';
 import { trendingApi, outletsApi, claimsApi } from '@/services/api';
 import { useAuth } from '@/hooks/useAuth';
 
+// Rating badge color
+function RatingBadge({ rating }: { rating: string }) {
+  const r = rating.toLowerCase();
+  let cls = 'bg-gray-100 text-gray-700';
+  if (r.includes('true') || r.includes('correct') || r.includes('accurate')) cls = 'bg-green-100 text-green-800';
+  else if (r.includes('false') || r.includes('incorrect') || r.includes('wrong')) cls = 'bg-red-100 text-red-800';
+  else if (r.includes('mislead') || r.includes('partly') || r.includes('mixed')) cls = 'bg-yellow-100 text-yellow-800';
+  return (
+    <span className={`inline-block px-2 py-0.5 text-[9px] font-black uppercase tracking-widest rounded ${cls}`}>
+      {rating}
+    </span>
+  );
+}
+
 function TrendingContent() {
-  const { token } = useAuth();
+  const { isAuthenticated } = useAuth();
   const initializationRef = useRef(false);
   const [stories, setStories] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -13,7 +27,6 @@ function TrendingContent() {
   const [topStory, setTopStory] = useState<any>(null);
   const [availableOutlets, setAvailableOutlets] = useState<string[]>([]);
   const [selectedOutlets, setSelectedOutlets] = useState<string[]>([]);
-  const [isLoadingOutlets, setIsLoadingOutlets] = useState(false);
   const [currentTime, setCurrentTime] = useState<string>('');
   const [currentDate, setCurrentDate] = useState<string>('');
   const [verifyingStoryId, setVerifyingStoryId] = useState<number | null>(null);
@@ -21,13 +34,19 @@ function TrendingContent() {
   const [isVerifying, setIsVerifying] = useState(false);
   const [verificationError, setVerificationError] = useState('');
 
+  // Live feed state
+  const [liveNews, setLiveNews] = useState<any[]>([]);
+  const [factChecks, setFactChecks] = useState<any[]>([]);
+  const [liveLoading, setLiveLoading] = useState(true);
+  const [liveError, setLiveError] = useState('');
+  const [liveTab, setLiveTab] = useState<'news' | 'factcheck'>('news');
+
   useEffect(() => {
-    // Prevent double initialization in React StrictMode (development)
     if (initializationRef.current) return;
     initializationRef.current = true;
-
     loadOutlets();
     fetchTrending();
+    fetchLiveFeed();
   }, []);
 
   useEffect(() => {
@@ -51,9 +70,9 @@ function TrendingContent() {
       setAvailableOutlets(availableData.outlets || []);
 
       // Load user's saved outlets if authenticated
-      if (token) {
+      if (isAuthenticated) {
         try {
-          const userData = await outletsApi.getUserOutlets(token);
+          const userData = await outletsApi.getUserOutlets();
           if (userData.outlets && userData.outlets.length > 0) {
             setSelectedOutlets(userData.outlets);
           } else {
@@ -83,9 +102,9 @@ function TrendingContent() {
     setSelectedOutlets(newOutlets);
 
     // Save to backend if authenticated
-    if (token) {
+    if (isAuthenticated) {
       try {
-        await outletsApi.updateUserOutlets(newOutlets, token);
+        await outletsApi.updateUserOutlets(newOutlets);
       } catch (err) {
         console.error('Failed to save outlet preferences:', err);
       }
@@ -95,22 +114,30 @@ function TrendingContent() {
   const fetchTrending = async () => {
     setIsLoading(true);
     setError('');
-
     try {
       const response = await trendingApi.getTrending('all', 20, selectedOutlets.length > 0 ? selectedOutlets : undefined);
       const allStories = response.stories || [];
-      console.log('Trending stories fetched:', allStories);
-      console.log('First story:', allStories[0]);
       setStories(allStories);
-      if (allStories.length > 0) {
-        setTopStory(allStories[0]);
-      }
+      if (allStories.length > 0) setTopStory(allStories[0]);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load trending stories';
-      console.error('Trending fetch error:', err);
       setError(message);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const fetchLiveFeed = async () => {
+    setLiveLoading(true);
+    setLiveError('');
+    try {
+      const data = await trendingApi.getLive();
+      setLiveNews(data.news || []);
+      setFactChecks(data.factChecks || []);
+    } catch (err) {
+      setLiveError('Could not load live feed. Make sure the backend is running.');
+    } finally {
+      setLiveLoading(false);
     }
   };
 
@@ -130,7 +157,7 @@ function TrendingContent() {
     try {
       const text = (story.claim_text || story.headline || '') as string;
       console.log('Sending verification request with text:', text);
-      const result = await claimsApi.verify(text, token || undefined);
+      const result = await claimsApi.verify(text);
       console.log('Verification result:', result);
       setVerificationResult(result);
     } catch (err) {
@@ -359,6 +386,161 @@ function TrendingContent() {
             <div className="text-center py-12 text-on-surface-variant">
               <p className="text-sm">No trending stories available</p>
             </div>
+          )}
+        </div>
+
+        {/* ── Live News + Fact Check Feed ───────────────────────────────────────── */}
+        <div className="mt-20">
+          {/* Section Header + Tabs */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 border-b border-surface-container-highest pb-4 gap-4">
+            <div>
+              <span className="text-[11px] uppercase tracking-widest text-on-surface-variant font-bold border-l-2 border-red-500 pl-4">
+                Live Intelligence Feed
+              </span>
+              <h2 className="font-display text-3xl mt-2 text-on-surface tracking-tight">Real-Time News & Fact Checks</h2>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setLiveTab('news')}
+                className={`px-6 py-2 text-[10px] font-bold uppercase tracking-widest transition-colors ${liveTab === 'news' ? 'bg-primary text-on-primary' : 'bg-surface-container text-on-surface hover:bg-surface-container-high'}`}
+              >
+                📰 News ({liveNews.length})
+              </button>
+              <button
+                onClick={() => setLiveTab('factcheck')}
+                className={`px-6 py-2 text-[10px] font-bold uppercase tracking-widest transition-colors ${liveTab === 'factcheck' ? 'bg-primary text-on-primary' : 'bg-surface-container text-on-surface hover:bg-surface-container-high'}`}
+              >
+                🔍 Fact Checks ({factChecks.length})
+              </button>
+              <button
+                onClick={fetchLiveFeed}
+                className="px-4 py-2 text-[10px] font-bold uppercase tracking-widest border border-outline hover:bg-surface-container transition-colors"
+                title="Refresh live feed"
+              >
+                ↻
+              </button>
+            </div>
+          </div>
+
+          {liveLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {[1,2,3,4,5,6].map(i => (
+                <div key={i} className="h-64 bg-surface-container-high animate-pulse rounded" />
+              ))}
+            </div>
+          ) : liveError ? (
+            <div className="p-6 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
+              {liveError}
+            </div>
+          ) : liveTab === 'news' ? (
+            liveNews.length === 0 ? (
+              <div className="text-center py-12 text-on-surface-variant">
+                <p className="text-sm">No live news available. Check NEWS_API_KEY in backend .env.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {liveNews.map((item: any, i: number) => (
+                  <article
+                    key={i}
+                    className="group bg-surface-container-lowest border border-surface-container-high hover:border-outline-variant transition-all flex flex-col overflow-hidden"
+                  >
+                    {/* Image */}
+                    {item.image ? (
+                      <div className="h-44 overflow-hidden bg-surface-container">
+                        <img
+                          src={item.image}
+                          alt={item.title}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                        />
+                      </div>
+                    ) : (
+                      <div className="h-44 bg-surface-container flex items-center justify-center">
+                        <span className="text-4xl opacity-20">📰</span>
+                      </div>
+                    )}
+                    <div className="flex-1 p-5 flex flex-col">
+                      {/* Meta */}
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="text-[9px] font-bold uppercase tracking-widest text-primary bg-primary/10 px-2 py-0.5">
+                          {item.source}
+                        </span>
+                        <span className="text-[9px] text-on-surface-variant">
+                          {item.publishedAt ? new Date(item.publishedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : ''}
+                        </span>
+                      </div>
+                      {/* Title */}
+                      <h3 className="font-semibold text-sm text-on-surface leading-snug mb-2 line-clamp-3 flex-1">
+                        {item.title}
+                      </h3>
+                      {/* Description */}
+                      {item.description && (
+                        <p className="text-[11px] text-on-surface-variant leading-relaxed mb-4 line-clamp-2">
+                          {item.description}
+                        </p>
+                      )}
+                      {/* Read More */}
+                      <a
+                        href={item.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-auto text-[10px] font-bold uppercase tracking-widest text-primary hover:text-primary-dim transition-colors flex items-center gap-1"
+                      >
+                        Read More →
+                      </a>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )
+          ) : (
+            // ── Fact Check Tab ───────────────────────────────────────────────────
+            factChecks.length === 0 ? (
+              <div className="text-center py-12 text-on-surface-variant">
+                <p className="text-sm">No fact checks available. Check GOOGLE_FACT_CHECK_API_KEY in backend .env.</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {factChecks.map((fc: any, i: number) => (
+                  <div
+                    key={i}
+                    className="bg-surface-container-lowest border border-surface-container-high p-6 hover:border-outline-variant transition-all flex flex-col md:flex-row gap-6"
+                  >
+                    <div className="flex-1">
+                      <div className="flex flex-wrap gap-2 items-center mb-3">
+                        <RatingBadge rating={fc.rating} />
+                        <span className="text-[9px] text-on-surface-variant uppercase tracking-widest font-bold">
+                          By {fc.publisher}
+                        </span>
+                        {fc.claimDate && (
+                          <span className="text-[9px] text-on-surface-variant">
+                            {new Date(fc.claimDate).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm font-semibold text-on-surface leading-snug mb-2">
+                        "{fc.claim}"
+                      </p>
+                      <p className="text-[11px] text-on-surface-variant">
+                        Claimant: <span className="font-bold text-on-surface">{fc.claimant}</span>
+                      </p>
+                    </div>
+                    {fc.reviewUrl && (
+                      <div className="shrink-0 flex items-center">
+                        <a
+                          href={fc.reviewUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-6 py-2 border border-outline text-[10px] font-bold uppercase tracking-widest hover:bg-surface-container transition-colors whitespace-nowrap"
+                        >
+                          View Review →
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )
           )}
         </div>
 

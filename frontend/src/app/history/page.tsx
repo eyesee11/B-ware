@@ -121,7 +121,15 @@ function HistoryContent() {
                     <h3 className="text-lg font-bold text-on-surface mb-2 leading-snug">
                       "{claim.original_text.length > 100 ? claim.original_text.substring(0, 100) + '...' : claim.original_text}"
                     </h3>
-                    <p className="text-sm text-on-surface-variant mb-6">Metric: {claim.extracted_metric || 'N/A'}</p>
+                    <p className="text-sm text-on-surface-variant mb-4">Metric: {claim.extracted_metric || 'N/A'}</p>
+                    
+                    {claim.explanation && (
+                      <div className="bg-surface-container p-4 mb-6 text-sm text-on-surface-variant">
+                        <span className="font-bold text-[10px] uppercase tracking-widest block mb-2 text-on-surface">Explanation</span>
+                        {claim.explanation}
+                      </div>
+                    )}
+                    
                     <div className="flex items-center gap-8 border-t border-surface-container pt-6">
                       <div className="flex flex-col">
                         <span className="text-[9px] uppercase tracking-widest text-on-surface-variant font-bold mb-1">

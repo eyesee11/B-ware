@@ -1,21 +1,33 @@
-const router = require("express").Router();
-const rateLimit = require("express-rate-limit");
-const auth = require("../controllers/authController");
-const requireAuth = require("../middleware/auth");
+const router = require('express').Router();
+const rateLimit = require('express-rate-limit');
+const auth = require('../controllers/authController');
+const requireAuth = require('../middleware/auth');
 
-// Stricter rate limit for login / register — 20 attempts per 15 minutes per IP.
-// This protects against brute-force and credential-stuffing attacks.
+// Strict rate limit for auth-adjacent endpoints
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
+  windowMs: 15 * 60 * 1000, // 15 minutes
   max: 20,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: "Too many auth requests, please try again later" },
+  message: { error: 'Too many auth requests, please try again later' },
 });
 
-router.post("/register", authLimiter, auth.register);
-router.post("/login", authLimiter, auth.login);
-router.post("/logout", requireAuth, auth.logout);
-router.get("/me", requireAuth, auth.getMe);
+// Sync Firebase user → MySQL after any sign-in (email/pass or Google)
+router.post('/sync', requireAuth, auth.syncUser);
+
+// Get current user profile from MySQL
+router.get('/me', requireAuth, auth.getMe);
+
+// Logout: revokes Firebase refresh tokens + blacklists session in Redis
+router.post('/logout', requireAuth, auth.logout);
+
+// Forgot password: generates Firebase reset link → sends via Nodemailer
+router.post('/forgot-password', authLimiter, auth.forgotPassword);
+
+// Email verification: resend verification email (rate-limited)
+router.post('/verify-email', authLimiter, requireAuth, auth.resendVerification);
+
+// Email verification: check live verified status from Firebase
+router.get('/verify-email/status', requireAuth, auth.getEmailVerifiedStatus);
 
 module.exports = router;

@@ -10,10 +10,13 @@ interface ProtectedRouteProps {
 }
 
 /**
- * Component to protect routes that require authentication
- * Redirects to login if user is not authenticated
+ * Protects routes that require authentication.
+ * Uses Firebase auth state (via AuthContext) — redirects to /login if unauthenticated.
  */
-export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, requiredRole = 'user' }) => {
+export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
+  children,
+  requiredRole = 'user',
+}) => {
   const router = useRouter();
   const { isAuthenticated, isLoading, user } = useAuth();
 
@@ -21,27 +24,27 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, requir
     if (!isLoading && !isAuthenticated) {
       router.push('/login');
     }
-
     if (!isLoading && isAuthenticated && requiredRole === 'admin' && user?.role !== 'admin') {
       router.push('/dashboard');
     }
   }, [isLoading, isAuthenticated, user, requiredRole, router]);
 
+  // Show spinner while Firebase resolves auth state
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-600"></div>
+      <div className="flex items-center justify-center min-h-screen bg-background">
+        <div className="text-center space-y-4">
+          <div className="w-10 h-10 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-[10px] uppercase tracking-[0.3em] text-on-surface-variant font-bold">
+            Verifying Identity...
+          </p>
+        </div>
       </div>
     );
   }
 
-  if (!isAuthenticated) {
-    return null;
-  }
-
-  if (requiredRole === 'admin' && user?.role !== 'admin') {
-    return null;
-  }
+  if (!isAuthenticated) return null;
+  if (requiredRole === 'admin' && user?.role !== 'admin') return null;
 
   return <>{children}</>;
 };

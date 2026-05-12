@@ -2,7 +2,9 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useRef } from "react";
+import { useRef, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/hooks/useAuth";
 import TopNav from "@/components/TopNav";
 import HeroVideoBackground from "@/components/HeroVideoBackground";
 import FadeInSection from "@/components/FadeInSection";
@@ -11,8 +13,24 @@ import { useHorizontalScroll } from "@/hooks/useHorizontalScroll";
 export default function LandingPage() {
   const tiersContainerRef = useRef<HTMLDivElement>(null);
   const tiersSectionsRef = useRef<HTMLDivElement>(null);
+  const { isAuthenticated, isLoading } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!isLoading && isAuthenticated) {
+      router.push("/dashboard");
+    }
+  }, [isAuthenticated, isLoading, router]);
 
   useHorizontalScroll({ containerRef: tiersContainerRef, sectionsRef: tiersSectionsRef });
+
+  if (isLoading || isAuthenticated) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-background">
+        <div className="w-10 h-10 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
+      </div>
+    );
+  }
 
   return (
     <div className="bg-background text-on-background relative">
@@ -369,6 +387,7 @@ export default function LandingPage() {
                   src="/bg.png"
                   alt="Abstract background"
                   fill
+                  sizes="(min-width: 768px) 50vw, 100vw"
                   style={{ objectFit: 'cover' }}
                   className="opacity-20 group-hover:opacity-30 transition-opacity duration-300"
                 />
