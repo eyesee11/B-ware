@@ -24,4 +24,10 @@ router.post('/logout', requireAuth, auth.logout);
 // Forgot password: generates Firebase reset link → sends via Nodemailer
 router.post('/forgot-password', authLimiter, auth.forgotPassword);
 
+// Email verification: resend verification email (rate-limited)
+router.post('/verify-email', authLimiter, requireAuth, auth.resendVerification);
+
+// Email verification: check live verified status from Firebase
+router.get('/verify-email/status', requireAuth, auth.getEmailVerifiedStatus);
+
 module.exports = router;

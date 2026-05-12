@@ -199,6 +199,106 @@ exports.getTrendingById = async (req, res) => {
   }
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// GET LIVE FEED — fetches directly from NewsAPI + Google Fact Check (no DB)
+// Returns real-time news cards and fact-check results for the trending page
+// ─────────────────────────────────────────────────────────────────────────────
+exports.getLiveFeed = async (req, res) => {
+  const cacheKey = 'trending_live_feed';
+
+  // Check Redis cache (10-minute TTL)
+  try {
+    const cached = await redis.get(cacheKey);
+    if (cached) return res.json(JSON.parse(cached));
+  } catch { /* Redis unavailable */ }
+
+  const newsItems = [];
+  const factCheckItems = [];
+
+  // ── 1. NewsAPI ──────────────────────────────────────────────────────────────
+  if (process.env.NEWS_API_KEY) {
+    try {
+      const { data } = await axios.get('https://newsapi.org/v2/everything', {
+        params: {
+          q: 'India AND (economy OR petrol OR unemployment OR election OR GDP OR fuel OR inflation OR "government scheme")',
+          language: 'en',
+          sortBy: 'publishedAt',
+          pageSize: 20,
+          apiKey: process.env.NEWS_API_KEY,
+        },
+        timeout: 10000,
+      });
+
+      for (const a of data.articles || []) {
+        if (!a.title || a.title === '[Removed]') continue;
+        newsItems.push({
+          type: 'news',
+          title: a.title,
+          source: a.source?.name || 'Unknown',
+          publishedAt: a.publishedAt,
+          image: a.urlToImage || null,
+          description: a.description || '',
+          url: a.url,
+        });
+      }
+    } catch (err) {
+      console.error('[getLiveFeed] NewsAPI error:', err.message);
+    }
+  }
+
+  // ── 2. Google Fact Check API ────────────────────────────────────────────────
+  if (process.env.GOOGLE_FACT_CHECK_API_KEY) {
+    const queries = ['petrol price India', 'India election', 'India economy', 'unemployment India'];
+
+    for (const query of queries) {
+      try {
+        const { data } = await axios.get(
+          'https://factchecktools.googleapis.com/v1alpha1/claims:search',
+          {
+            params: {
+              query,
+              languageCode: 'en',
+              pageSize: 5,
+              key: process.env.GOOGLE_FACT_CHECK_API_KEY,
+            },
+            timeout: 8000,
+          }
+        );
+
+        for (const claim of data.claims || []) {
+          const review = claim.claimReview?.[0];
+          if (!review) continue;
+          factCheckItems.push({
+            type: 'factcheck',
+            claim: claim.text,
+            claimant: claim.claimant || 'Unknown',
+            publisher: review.publisher?.name || 'Unknown',
+            rating: review.textualRating || 'Unrated',
+            reviewUrl: review.url || null,
+            claimDate: claim.claimDate || null,
+          });
+        }
+      } catch (err) {
+        console.error(`[getLiveFeed] FactCheck error for "${query}":`, err.message);
+      }
+    }
+  }
+
+  const result = {
+    news: newsItems,
+    factChecks: factCheckItems,
+    fetchedAt: new Date().toISOString(),
+    total: newsItems.length + factCheckItems.length,
+  };
+
+  // Cache for 10 minutes
+  try {
+    await redis.set(cacheKey, JSON.stringify(result), 'EX', 600);
+  } catch { /* Redis unavailable */ }
+
+  return res.json(result);
+};
+
 // manual refresh endpoint (admin only)
 exports.refreshTrending = async (req, res) => {
   if (req.user.role !== "admin") {

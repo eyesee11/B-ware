@@ -1,7 +1,7 @@
 const db = require('../config/db');
 const redis = require('../config/redis');
 const admin = require('../services/firebaseAdmin');
-const { sendPasswordResetEmail } = require('../services/emailService');
+const { sendPasswordResetEmail, sendVerificationEmail } = require('../services/emailService');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SYNC USER
@@ -12,6 +12,13 @@ exports.syncUser = async (req, res) => {
   const { uid, email, name, picture } = req.user; // set by auth middleware
 
   try {
+    // Check if this is a brand-new user before upsert
+    const [existing] = await db.query(
+      'SELECT id FROM users WHERE firebase_uid = ?',
+      [uid]
+    );
+    const isNewUser = existing.length === 0;
+
     // Upsert user — insert or update name/picture on conflict
     await db.query(
       `INSERT INTO users (firebase_uid, email, name, avatar_url, role, created_at)
@@ -43,7 +50,19 @@ exports.syncUser = async (req, res) => {
       console.warn('[syncUser] Redis session store failed:', redisErr.message);
     }
 
-    return res.json({ user });
+    // Send verification email to brand-new email/password users (not Google OAuth)
+    if (isNewUser && !req.user.emailVerified) {
+      try {
+        const verifyLink = await admin.auth().generateEmailVerificationLink(email);
+        await sendVerificationEmail(email, verifyLink);
+        console.log(`[syncUser] Verification email sent to ${email}`);
+      } catch (emailErr) {
+        // Non-fatal — log but don't block the response
+        console.warn('[syncUser] Could not send verification email:', emailErr.message);
+      }
+    }
+
+    return res.json({ user, emailVerificationSent: isNewUser && !req.user.emailVerified });
   } catch (err) {
     console.error('[syncUser] DB error:', err.message);
     return res.status(500).json({ error: 'Could not sync user' });
@@ -126,5 +145,40 @@ exports.forgotPassword = async (req, res) => {
     console.error('[forgotPassword] Error:', err.code || err.message);
     // Generic response so we don't leak account existence
     return res.json({ message: 'If an account exists for this email, a reset link has been sent.' });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RESEND VERIFICATION EMAIL — authenticated endpoint
+// ─────────────────────────────────────────────────────────────────────────────
+exports.resendVerification = async (req, res) => {
+  const { uid, email, emailVerified } = req.user;
+
+  if (emailVerified) {
+    return res.status(400).json({ error: 'Email is already verified' });
+  }
+
+  try {
+    const verifyLink = await admin.auth().generateEmailVerificationLink(email);
+    await sendVerificationEmail(email, verifyLink);
+    console.log(`[resendVerification] Sent to ${email}`);
+    return res.json({ message: 'Verification email sent' });
+  } catch (err) {
+    console.error('[resendVerification] Error:', err.message);
+    return res.status(500).json({ error: 'Could not send verification email' });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EMAIL VERIFIED STATUS — check if current user has verified email
+// ─────────────────────────────────────────────────────────────────────────────
+exports.getEmailVerifiedStatus = async (req, res) => {
+  try {
+    // Re-fetch from Firebase to get live emailVerified state
+    const userRecord = await admin.auth().getUser(req.user.uid);
+    return res.json({ emailVerified: userRecord.emailVerified, email: userRecord.email });
+  } catch (err) {
+    console.error('[getEmailVerifiedStatus] Error:', err.message);
+    return res.status(500).json({ error: 'Could not fetch verification status' });
   }
 };

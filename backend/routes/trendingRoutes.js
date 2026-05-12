@@ -5,6 +5,7 @@ const optionalAuth = require('../middleware/optionalAuth');
 
 router.get('/',         optionalAuth, trending.getTrending);
 router.get('/sources',  trending.getSourceStats);
+router.get('/live',     trending.getLiveFeed);          // real-time NewsAPI + FactCheck
 router.get('/:id',      trending.getTrendingById);
 router.post('/refresh', requireAuth, trending.refreshTrending); 
 

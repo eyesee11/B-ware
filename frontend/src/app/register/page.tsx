@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
+import { authApi } from "@/services/api";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -19,6 +20,10 @@ export default function RegisterPage() {
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [registered, setRegistered] = useState(false);      // show verification banner
+  const [registeredEmail, setRegisteredEmail] = useState('');
+  const [resendStatus, setResendStatus] = useState('');     // resend feedback
+  const [resending, setResending] = useState(false);
 
   useEffect(() => {
     if (!isAuthLoading && isAuthenticated) {
@@ -51,7 +56,9 @@ export default function RegisterPage() {
     setIsLoading(true);
     try {
       await register(formData.name.trim(), formData.email, formData.password);
-      router.push('/dashboard');
+      // Show verification banner instead of going to dashboard
+      setRegisteredEmail(formData.email);
+      setRegistered(true);
     } catch (err: any) {
       const code = err?.code || '';
       if (code === 'auth/email-already-in-use') {
@@ -63,6 +70,19 @@ export default function RegisterPage() {
       }
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleResend = async () => {
+    setResending(true);
+    setResendStatus('');
+    try {
+      await authApi.resendVerification();
+      setResendStatus('Verification email resent! Check your inbox.');
+    } catch {
+      setResendStatus('Could not resend. Please try again in a moment.');
+    } finally {
+      setResending(false);
     }
   };
 
@@ -87,7 +107,54 @@ export default function RegisterPage() {
       <main className="pt-16 min-h-screen">
         <div className="max-w-[1440px] mx-auto px-8 py-20">
 
-          {/* Header */}
+          {/* ── Email Verification Banner ── */}
+          {registered && (
+            <div className="max-w-xl mx-auto">
+              <div className="bg-surface-container-lowest border-2 border-primary p-12 text-center">
+                <div className="text-6xl mb-6">📧</div>
+                <span className="text-[10px] uppercase tracking-widest text-primary font-bold block mb-4">
+                  Account Created
+                </span>
+                <h1 className="font-display text-4xl font-black text-on-surface mb-4 tracking-tight">
+                  Verify Your Email
+                </h1>
+                <p className="text-on-surface-variant text-sm leading-relaxed mb-2">
+                  A verification link has been sent to:
+                </p>
+                <p className="font-mono font-bold text-on-surface mb-6">{registeredEmail}</p>
+                <p className="text-on-surface-variant text-sm leading-relaxed mb-8">
+                  Please click the link in the email to activate your account.
+                  The link expires in <strong>24 hours</strong>.
+                </p>
+                {resendStatus && (
+                  <p className={`text-sm mb-4 ${resendStatus.includes('resent') ? 'text-green-600' : 'text-red-600'}`}>
+                    {resendStatus}
+                  </p>
+                )}
+                <div className="flex flex-col gap-3">
+                  <button
+                    onClick={() => router.push('/dashboard')}
+                    className="w-full bg-primary text-on-primary py-3 font-bold uppercase text-[10px] tracking-widest hover:bg-primary-dim transition-colors"
+                  >
+                    Continue to Dashboard →
+                  </button>
+                  <button
+                    onClick={handleResend}
+                    disabled={resending}
+                    className="w-full border border-outline text-on-surface py-3 font-bold uppercase text-[10px] tracking-widest hover:bg-surface-container transition-colors disabled:opacity-50"
+                  >
+                    {resending ? 'Sending...' : 'Resend Verification Email'}
+                  </button>
+                </div>
+                <p className="mt-6 text-[10px] text-on-surface-variant">
+                  Didn't get it? Check your spam folder.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Main Registration Form — hidden once registered */}
+          {!registered && (<>
           <div className="swiss-grid mb-20">
             <div className="col-span-12 lg:col-span-7">
               <span className="text-[11px] uppercase tracking-[0.2em] text-primary font-bold mb-4 block">
@@ -316,6 +383,7 @@ export default function RegisterPage() {
               </div>
             </div>
           </div>
+          </>)}
         </div>
       </main>
     </div>

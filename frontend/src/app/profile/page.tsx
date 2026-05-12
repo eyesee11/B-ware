@@ -109,7 +109,7 @@ function ProfileContent() {
               {/* Identity */}
               <div className="flex-1 min-w-0">
                 <p className="text-[10px] uppercase tracking-[0.3em] text-white/50 mb-2">
-                  Personnel Dossier // Ref: {user?.id || firebaseUser?.uid?.slice(0, 8)}
+                  Personnel Dossier // Ref: {user?.id?.toString().padStart(6, '0') || '——'}
                 </p>
 
                 {isEditing ? (
@@ -295,12 +295,28 @@ function ProfileContent() {
               </div>
             </div>
 
-            {/* Firebase UID */}
+            {/* Session Info (replaces UID card) */}
             <div className="bg-surface-container-low p-5">
-              <p className="text-[9px] uppercase tracking-widest text-on-surface-variant font-bold mb-2">Firebase UID</p>
-              <p className="font-mono text-[10px] text-on-surface-variant break-all leading-relaxed">
-                {firebaseUser?.uid || user?.firebase_uid || 'Loading...'}
-              </p>
+              <div className="flex items-center gap-2 mb-3">
+                <span className="material-symbols-outlined text-[14px] text-primary">manage_accounts</span>
+                <p className="text-[9px] uppercase tracking-widest font-bold">Session Info</p>
+              </div>
+              <div className="space-y-2">
+                <div className="flex justify-between text-[10px]">
+                  <span className="text-on-surface-variant">Account #</span>
+                  <span className="font-mono text-on-surface">{user?.id || '—'}</span>
+                </div>
+                <div className="flex justify-between text-[10px]">
+                  <span className="text-on-surface-variant">Email Status</span>
+                  <span className={firebaseUser?.emailVerified ? 'text-green-600 font-bold' : 'text-yellow-600 font-bold'}>
+                    {firebaseUser?.emailVerified ? '✓ Verified' : '⚠ Unverified'}
+                  </span>
+                </div>
+                <div className="flex justify-between text-[10px]">
+                  <span className="text-on-surface-variant">Auth Method</span>
+                  <span className="text-on-surface">{providerIcon}</span>
+                </div>
+              </div>
             </div>
 
             {/* Security info */}

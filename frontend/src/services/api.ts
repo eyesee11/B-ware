@@ -66,6 +66,14 @@ export const authApi = {
       body: JSON.stringify({ email }),
       skipAuth: true,
     }),
+
+  /** Resend email verification link */
+  resendVerification: async () =>
+    apiCall('/auth/verify-email', { method: 'POST' }),
+
+  /** Get live email verified status from Firebase */
+  getVerifiedStatus: async () =>
+    apiCall('/auth/verify-email/status', { method: 'GET' }),
 };
 
 /** Claims verification */
@@ -101,6 +109,7 @@ export const trendingApi = {
   },
   getById: async (id: string | number) => apiCall(`/trending/${id}`, { method: 'GET' }),
   getSourceStats: async () => apiCall('/trending/sources', { method: 'GET' }),
+  getLive: async () => apiCall('/trending/live', { method: 'GET', skipAuth: true }),
   refresh: async () => apiCall('/trending/refresh', { method: 'POST' }),
 };
 
