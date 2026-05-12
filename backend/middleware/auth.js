@@ -29,6 +29,14 @@ module.exports = async function auth(req, res, next) {
     } catch {
       // Redis down — skip blacklist check rather than blocking the request
     }
+
+    // Require email verification for all protected routes except /sync, /logout, and /verify-email
+    // Only enforce this for email/password users (who have email_verified)
+    if (decoded.email && decoded.email_verified === false) {
+      if (!req.originalUrl || (!req.originalUrl.includes('/verify-email') && !req.originalUrl.includes('/logout'))) {
+        return res.status(403).json({ error: 'Please verify your email address to access this resource.' });
+      }
+    }
   }
 
   req.user = {

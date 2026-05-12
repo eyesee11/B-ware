@@ -18,13 +18,14 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   requiredRole = 'user',
 }) => {
   const router = useRouter();
-  const { isAuthenticated, isLoading, user } = useAuth();
+  const { isAuthenticated, isLoading, user, firebaseUser } = useAuth();
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
       router.push('/login');
-    }
-    if (!isLoading && isAuthenticated && requiredRole === 'admin' && user?.role !== 'admin') {
+    } else if (!isLoading && isAuthenticated && firebaseUser && !firebaseUser.emailVerified) {
+      router.push('/verify-pending');
+    } else if (!isLoading && isAuthenticated && requiredRole === 'admin' && user?.role !== 'admin') {
       router.push('/dashboard');
     }
   }, [isLoading, isAuthenticated, user, requiredRole, router]);
@@ -44,6 +45,7 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   }
 
   if (!isAuthenticated) return null;
+  if (firebaseUser && !firebaseUser.emailVerified) return null;
   if (requiredRole === 'admin' && user?.role !== 'admin') return null;
 
   return <>{children}</>;

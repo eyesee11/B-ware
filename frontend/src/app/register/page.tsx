@@ -9,7 +9,7 @@ import { authApi } from "@/services/api";
 
 export default function RegisterPage() {
   const router = useRouter();
-  const { register, loginWithGoogle, isAuthenticated, isLoading: isAuthLoading } = useAuth();
+  const { register, loginWithGoogle, isAuthenticated, isLoading: isAuthLoading, firebaseUser } = useAuth();
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -27,9 +27,11 @@ export default function RegisterPage() {
 
   useEffect(() => {
     if (!isAuthLoading && isAuthenticated) {
-      router.push('/dashboard');
+      if (firebaseUser?.emailVerified) {
+        router.push('/dashboard');
+      }
     }
-  }, [isAuthenticated, isAuthLoading, router]);
+  }, [isAuthenticated, isAuthLoading, router, firebaseUser]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;

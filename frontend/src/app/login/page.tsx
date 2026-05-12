@@ -2,13 +2,15 @@
 
 import TopNav from "@/components/TopNav";
 import Link from "next/link";
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 
-export default function LoginPage() {
+function LoginContent() {
   const router = useRouter();
-  const { login, loginWithGoogle, isAuthenticated, isLoading: isAuthLoading } = useAuth();
+  const searchParams = useSearchParams();
+  const isVerified = searchParams.get('verified') === 'true';
+  const { login, loginWithGoogle, isAuthenticated, isLoading: isAuthLoading, firebaseUser } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -18,9 +20,22 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (!isAuthLoading && isAuthenticated) {
-      router.push('/dashboard');
+      if (isVerified && firebaseUser && !firebaseUser.emailVerified) {
+        firebaseUser.reload().then(async () => {
+          if (firebaseUser.emailVerified) {
+            await firebaseUser.getIdToken(true);
+            router.push('/dashboard');
+          } else {
+            router.push('/verify-pending');
+          }
+        });
+      } else if (firebaseUser?.emailVerified) {
+        router.push('/dashboard');
+      } else {
+        router.push('/verify-pending');
+      }
     }
-  }, [isAuthenticated, isAuthLoading, router]);
+  }, [isAuthenticated, isAuthLoading, router, firebaseUser, isVerified]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -109,6 +124,16 @@ export default function LoginPage() {
                   Submit credentials to access the Forensic Unit 01.
                 </p>
               </header>
+
+              {isVerified && (
+                <div className="mb-6 p-4 bg-green-500/10 border border-green-500/20 text-green-400 flex items-start gap-3">
+                  <span className="material-symbols-outlined mt-0.5 text-[20px]">check_circle</span>
+                  <div>
+                    <h3 className="font-bold text-sm tracking-wide uppercase mb-1">Verification Successful</h3>
+                    <p className="text-xs opacity-90 leading-relaxed">Your identity has been confirmed. You may now initialize your session.</p>
+                  </div>
+                </div>
+              )}
 
               {/* Google Sign-In */}
               <button
@@ -245,5 +270,13 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-background text-on-surface flex items-center justify-center font-display text-2xl tracking-widest uppercase">Initializing...</div>}>
+      <LoginContent />
+    </Suspense>
   );
 }

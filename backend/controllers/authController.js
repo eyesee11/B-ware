@@ -1,7 +1,10 @@
-const db = require('../config/db');
-const redis = require('../config/redis');
-const admin = require('../services/firebaseAdmin');
-const { sendPasswordResetEmail, sendVerificationEmail } = require('../services/emailService');
+const db = require("../config/db");
+const redis = require("../config/redis");
+const admin = require("../services/firebaseAdmin");
+const {
+  sendPasswordResetEmail,
+  sendVerificationEmail,
+} = require("../services/emailService");
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SYNC USER
@@ -14,8 +17,8 @@ exports.syncUser = async (req, res) => {
   try {
     // Check if this is a brand-new user before upsert
     const [existing] = await db.query(
-      'SELECT id FROM users WHERE firebase_uid = ?',
-      [uid]
+      "SELECT id FROM users WHERE firebase_uid = ?",
+      [uid],
     );
     const isNewUser = existing.length === 0;
 
@@ -27,45 +30,56 @@ exports.syncUser = async (req, res) => {
          name         = COALESCE(VALUES(name), name),
          avatar_url   = COALESCE(VALUES(avatar_url), avatar_url),
          last_seen_at = NOW()`,
-      [uid, email, name, picture || null]
+      [uid, email, name, picture || null],
     );
 
     // Fetch full user row (gets id, role, created_at, etc.)
     const [rows] = await db.query(
       `SELECT id, firebase_uid, name, email, avatar_url, role, created_at
        FROM users WHERE firebase_uid = ?`,
-      [uid]
+      [uid],
     );
 
     const user = rows[0];
     if (!user) {
-      return res.status(500).json({ error: 'User sync failed' });
+      return res.status(500).json({ error: "User sync failed" });
     }
 
     // Store session in Redis (7-day TTL) and clear any old logout blacklist
     try {
-      await redis.set(`session:${uid}`, '1', 'EX', 7 * 24 * 60 * 60);
+      await redis.set(`session:${uid}`, "1", "EX", 7 * 24 * 60 * 60);
       await redis.del(`session_blacklist:${uid}`); // clear any old logout blacklist
     } catch (redisErr) {
-      console.warn('[syncUser] Redis session store failed:', redisErr.message);
+      console.warn("[syncUser] Redis session store failed:", redisErr.message);
     }
 
     // Send verification email to brand-new email/password users (not Google OAuth)
-    if (isNewUser && !req.user.emailVerified) {
+    if (isNewUser && !req.user.email_verified) {
       try {
-        const verifyLink = await admin.auth().generateEmailVerificationLink(email);
+        const actionCodeSettings = {
+          url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/login?verified=true`,
+        };
+        const verifyLink = await admin
+          .auth()
+          .generateEmailVerificationLink(email, actionCodeSettings);
         await sendVerificationEmail(email, verifyLink);
         console.log(`[syncUser] Verification email sent to ${email}`);
       } catch (emailErr) {
         // Non-fatal — log but don't block the response
-        console.warn('[syncUser] Could not send verification email:', emailErr.message);
+        console.warn(
+          "[syncUser] Could not send verification email:",
+          emailErr.message,
+        );
       }
     }
 
-    return res.json({ user, emailVerificationSent: isNewUser && !req.user.emailVerified });
+    return res.json({
+      user,
+      emailVerificationSent: isNewUser && !req.user.email_verified,
+    });
   } catch (err) {
-    console.error('[syncUser] DB error:', err.message);
-    return res.status(500).json({ error: 'Could not sync user' });
+    console.error("[syncUser] DB error:", err.message);
+    return res.status(500).json({ error: "Could not sync user" });
   }
 };
 
@@ -77,17 +91,17 @@ exports.getMe = async (req, res) => {
     const [rows] = await db.query(
       `SELECT id, firebase_uid, name, email, avatar_url, role, created_at
        FROM users WHERE firebase_uid = ?`,
-      [req.user.uid]
+      [req.user.uid],
     );
 
     if (!rows[0]) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ error: "User not found" });
     }
 
     return res.json(rows[0]);
   } catch (err) {
-    console.error('[getMe] DB error:', err.message);
-    return res.status(500).json({ error: 'Could not fetch user' });
+    console.error("[getMe] DB error:", err.message);
+    return res.status(500).json({ error: "Could not fetch user" });
   }
 };
 
@@ -104,16 +118,16 @@ exports.logout = async (req, res) => {
     await admin.auth().revokeRefreshTokens(uid);
 
     // Blacklist the session in Redis (24h covers any in-flight ID tokens)
-    await redis.set(`session_blacklist:${uid}`, '1', 'EX', 24 * 60 * 60);
+    await redis.set(`session_blacklist:${uid}`, "1", "EX", 24 * 60 * 60);
 
     // Remove active session key
     await redis.del(`session:${uid}`);
   } catch (err) {
-    console.error('[logout] Error:', err.message);
+    console.error("[logout] Error:", err.message);
     // Still return success — client will clear its state
   }
 
-  return res.json({ message: 'Logged out' });
+  return res.json({ message: "Logged out" });
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -122,14 +136,14 @@ exports.logout = async (req, res) => {
 exports.forgotPassword = async (req, res) => {
   const { email } = req.body ?? {};
 
-  if (!email || typeof email !== 'string') {
-    return res.status(400).json({ error: 'email is required' });
+  if (!email || typeof email !== "string") {
+    return res.status(400).json({ error: "email is required" });
   }
 
   const normalised = email.trim().toLowerCase();
   const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!EMAIL_RE.test(normalised)) {
-    return res.status(400).json({ error: 'Invalid email address' });
+    return res.status(400).json({ error: "Invalid email address" });
   }
 
   try {
@@ -139,12 +153,15 @@ exports.forgotPassword = async (req, res) => {
     // Send the branded email via Nodemailer
     await sendPasswordResetEmail(normalised, resetLink);
 
-    return res.json({ message: 'Password reset email sent' });
+    return res.json({ message: "Password reset email sent" });
   } catch (err) {
     // Firebase throws "auth/user-not-found" — return generic message for security
-    console.error('[forgotPassword] Error:', err.code || err.message);
+    console.error("[forgotPassword] Error:", err.code || err.message);
     // Generic response so we don't leak account existence
-    return res.json({ message: 'If an account exists for this email, a reset link has been sent.' });
+    return res.json({
+      message:
+        "If an account exists for this email, a reset link has been sent.",
+    });
   }
 };
 
@@ -155,17 +172,20 @@ exports.resendVerification = async (req, res) => {
   const { uid, email, emailVerified } = req.user;
 
   if (emailVerified) {
-    return res.status(400).json({ error: 'Email is already verified' });
+    return res.status(400).json({ error: "Email is already verified" });
   }
 
   try {
-    const verifyLink = await admin.auth().generateEmailVerificationLink(email);
+    const actionCodeSettings = {
+      url: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/login?verified=true`,
+    };
+    const verifyLink = await admin.auth().generateEmailVerificationLink(email, actionCodeSettings);
     await sendVerificationEmail(email, verifyLink);
     console.log(`[resendVerification] Sent to ${email}`);
-    return res.json({ message: 'Verification email sent' });
+    return res.json({ message: "Verification email sent" });
   } catch (err) {
-    console.error('[resendVerification] Error:', err.message);
-    return res.status(500).json({ error: 'Could not send verification email' });
+    console.error("[resendVerification] Error:", err.message);
+    return res.status(500).json({ error: "Could not send verification email" });
   }
 };
 
@@ -176,9 +196,14 @@ exports.getEmailVerifiedStatus = async (req, res) => {
   try {
     // Re-fetch from Firebase to get live emailVerified state
     const userRecord = await admin.auth().getUser(req.user.uid);
-    return res.json({ emailVerified: userRecord.emailVerified, email: userRecord.email });
+    return res.json({
+      emailVerified: userRecord.emailVerified,
+      email: userRecord.email,
+    });
   } catch (err) {
-    console.error('[getEmailVerifiedStatus] Error:', err.message);
-    return res.status(500).json({ error: 'Could not fetch verification status' });
+    console.error("[getEmailVerifiedStatus] Error:", err.message);
+    return res
+      .status(500)
+      .json({ error: "Could not fetch verification status" });
   }
 };
