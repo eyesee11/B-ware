@@ -22,7 +22,11 @@ export default function LandingPage() {
     }
   }, [isAuthenticated, isLoading, router]);
 
-  useHorizontalScroll({ containerRef: tiersContainerRef, sectionsRef: tiersSectionsRef });
+  useHorizontalScroll({ 
+    containerRef: tiersContainerRef, 
+    sectionsRef: tiersSectionsRef,
+    dependencies: [isLoading]
+  });
 
   if (isLoading || isAuthenticated) {
     return (
