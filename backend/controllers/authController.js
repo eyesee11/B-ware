@@ -27,10 +27,11 @@ exports.syncUser = async (req, res) => {
       `INSERT INTO users (firebase_uid, email, name, avatar_url, role, created_at)
        VALUES (?, ?, ?, ?, 'user', NOW())
        ON DUPLICATE KEY UPDATE
+         firebase_uid = COALESCE(VALUES(firebase_uid), firebase_uid),
          name         = COALESCE(VALUES(name), name),
          avatar_url   = COALESCE(VALUES(avatar_url), avatar_url),
          last_seen_at = NOW()`,
-      [uid, email, name, picture || null],
+      [uid || null, email || null, name || null, picture || null],
     );
 
     // Fetch full user row (gets id, role, created_at, etc.)
@@ -78,8 +79,8 @@ exports.syncUser = async (req, res) => {
       emailVerificationSent: isNewUser && !req.user.email_verified,
     });
   } catch (err) {
-    console.error("[syncUser] DB error:", err.message);
-    return res.status(500).json({ error: "Could not sync user" });
+    console.error("[syncUser] DB error:", err.message, err.stack);
+    return res.status(500).json({ error: "Could not sync user: " + err.message });
   }
 };
 
